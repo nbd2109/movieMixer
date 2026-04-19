@@ -404,6 +404,47 @@ async def mix(
     }
 
 
+@app.get("/api/movies/{tmdb_id}/watch-providers")
+async def watch_providers(tmdb_id: int, country: str = Query("ES")):
+    """
+    Devuelve dónde ver la película vía TMDB Watch Providers (datos de JustWatch).
+    Intenta el país solicitado; hace fallback a US si no hay datos.
+    Devuelve lista vacía (no error) cuando TMDB no está configurado o falla.
+    """
+    if not TMDB_API_KEY:
+        return {"flatrate": [], "rent": [], "link": None}
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(
+                f"{TMDB_BASE}/movie/{tmdb_id}/watch/providers",
+                params={"api_key": TMDB_API_KEY},
+            )
+        if resp.status_code != 200:
+            return {"flatrate": [], "rent": [], "link": None}
+
+        results = resp.json().get("results", {})
+        country_data = results.get(country) or results.get("US") or {}
+
+        def fmt(providers):
+            return [
+                {
+                    "id":   p["provider_id"],
+                    "name": p["provider_name"],
+                    "logo": f"https://image.tmdb.org/t/p/w45{p['logo_path']}",
+                }
+                for p in providers
+                if p.get("logo_path")
+            ][:5]
+
+        return {
+            "flatrate": fmt(country_data.get("flatrate", [])),
+            "rent":     fmt(country_data.get("rent", [])),
+            "link":     country_data.get("link"),
+        }
+    except Exception:
+        return {"flatrate": [], "rent": [], "link": None}
+
+
 @app.get("/health")
 async def health():
     try:

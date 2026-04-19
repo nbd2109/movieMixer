@@ -37,7 +37,7 @@ const FALLBACKS = [
   },
 ]
 
-export function useMix(sliders) {
+export function useMix(sliders, remixKey = 0) {
   const debouncedSliders = useDebounce(sliders, 350)
   const [movie, setMovie] = useState(FALLBACKS[0])
   const [loading, setLoading] = useState(false)
@@ -96,7 +96,8 @@ export function useMix(sliders) {
 
     fetchMix()
     return () => controller.abort()
-  }, [debouncedSliders])
+  // remixKey is intentionally not debounced — clicking REMIX fires immediately
+  }, [debouncedSliders, remixKey])
 
   return { movie, loading, error }
 }

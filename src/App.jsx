@@ -7,6 +7,7 @@ import YearRangeSlider from './components/YearRangeSlider'
 import SamplePads from './components/SamplePads'
 import TicketGenerator from './components/TicketGenerator'
 import TmdbAttribution from './components/TmdbAttribution'
+import WatchProviders from './components/WatchProviders'
 import { useMix } from './hooks/useMix'
 import { useRetention } from './hooks/useRetention'
 import { track, Events } from './lib/track'
@@ -23,8 +24,17 @@ export default function App() {
   const { getInitialSliders, saveSliders, welcomeMessage } = useRetention(INITIAL_SLIDERS)
   const [sliders, setSliders] = useState(() => getInitialSliders())
   const [panelOpen, setPanelOpen] = useState(true)
+  const [remixKey, setRemixKey] = useState(0)
+  const [remixSpinning, setRemixSpinning] = useState(false)
 
-  const { movie, loading, error } = useMix(sliders)
+  const { movie, loading, error } = useMix(sliders, remixKey)
+
+  function handleRemix() {
+    setRemixKey((k) => k + 1)
+    setRemixSpinning(true)
+    setTimeout(() => setRemixSpinning(false), 600)
+    track(Events.REMIX_CLICKED, { genres: sliders.genres, tone: sliders.tone, cerebro: sliders.cerebro })
+  }
 
   function set(key) {
     return (val) => {
@@ -45,10 +55,11 @@ export default function App() {
 
       {/* ── Layer 10: Movie info ── */}
       <div
-        className="absolute inset-0 z-10 flex flex-col items-center justify-center"
+        className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4"
         style={{ paddingBottom: panelOpen ? '58vh' : '0' }}
       >
         <MovieDisplay movie={movie} loading={loading} />
+        <WatchProviders tmdbId={movie?.tmdbId} movieTitle={movie?.title} />
       </div>
 
       {/* ── Badges de estado ── */}
@@ -132,6 +143,38 @@ export default function App() {
           ↓
         </motion.span>
       </motion.button>
+
+      {/* ── REMIX button ── */}
+      <motion.div
+        className="absolute left-1/2 -translate-x-1/2 z-30"
+        animate={{ bottom: panelOpen ? 'calc(62vh + 14px)' : '32px' }}
+        transition={{ type: 'spring', damping: 32, stiffness: 260 }}
+      >
+        <motion.button
+          onClick={handleRemix}
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.92 }}
+          disabled={loading}
+          className="relative flex items-center justify-center rounded-full font-black text-black text-xl"
+          style={{
+            width: 60,
+            height: 60,
+            background: 'linear-gradient(135deg, #fbbf24 0%, #d97706 100%)',
+            boxShadow: loading
+              ? '0 0 16px rgba(251,191,36,0.2)'
+              : '0 0 28px rgba(251,191,36,0.55), 0 4px 16px rgba(0,0,0,0.5)',
+            opacity: loading ? 0.6 : 1,
+          }}
+        >
+          <motion.span
+            animate={{ rotate: remixSpinning ? 360 : 0 }}
+            transition={{ duration: 0.55, ease: 'easeOut' }}
+            style={{ display: 'inline-block', lineHeight: 1 }}
+          >
+            ↻
+          </motion.span>
+        </motion.button>
+      </motion.div>
 
       {/* ══════════════════════════════════════════════
           MESA DE MEZCLAS
