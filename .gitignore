@@ -3,3 +3,17 @@ dist
 .env
 .env.local
 .DS_Store
+
+# IMDb raw datasets (heavy — regenerar con setup_db.py)
+backend/title.basics.tsv.gz
+backend/title.ratings.tsv.gz
+
+# Base de datos local (regenerar con setup_db.py)
+backend/movies.db
+
+# Python cache
+backend/__pycache__/
+__pycache__/
+
+# Claude
+.claude/

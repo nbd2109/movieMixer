@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useDebounce } from './useDebounce'
 
-// Fallback movies shown while waiting for the backend
 const FALLBACKS = [
   {
     title: 'Blade Runner 2049',
@@ -14,7 +13,7 @@ const FALLBACKS = [
   {
     title: 'Interstellar',
     year: 2014,
-    overview: 'Un equipo de exploradores viaja a través de un agujero de gusano en el espacio en un intento de garantizar la supervivencia de la humanidad.',
+    overview: 'Un equipo de exploradores viaja a través de un agujero de gusano en el espacio.',
     posterUrl: 'https://image.tmdb.org/t/p/original/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg',
     genres: ['Sci-Fi', 'Adventure', 'Drama'],
     rating: 8.6,
@@ -37,17 +36,11 @@ const FALLBACKS = [
   },
 ]
 
-function pickFallback(sliders) {
-  // Simple deterministic pick based on slider sum
-  const sum = sliders.adrenaline + sliders.tension + sliders.cerebro
-  return FALLBACKS[Math.floor(sum / 60) % FALLBACKS.length]
-}
-
 export function useMix(sliders) {
   const debouncedSliders = useDebounce(sliders, 350)
   const [movie, setMovie] = useState(FALLBACKS[0])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState(null) // null | 'backend_offline' | { code, message, genres }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -57,22 +50,30 @@ export function useMix(sliders) {
       setError(null)
       try {
         const params = new URLSearchParams({
-          adrenaline: debouncedSliders.adrenaline,
-          tension: debouncedSliders.tension,
-          cerebro: debouncedSliders.cerebro,
+          genres:   debouncedSliders.genres.join(','),
+          tone:     debouncedSliders.tone,
+          cerebro:  debouncedSliders.cerebro,
           yearFrom: debouncedSliders.yearFrom,
-          yearTo: debouncedSliders.yearTo,
+          yearTo:   debouncedSliders.yearTo,
         })
         const res = await fetch(`/api/movies/mix?${params}`, {
           signal: controller.signal,
         })
+
+        if (res.status === 404) {
+          // Combinación de géneros sin resultados — mostrar mensaje, no cambiar la película
+          const body = await res.json()
+          setError({ code: 'no_genre_match', genres: body.detail?.genres_requested ?? [] })
+          setLoading(false)
+          return
+        }
+
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
         const data = await res.json()
         setMovie(data)
       } catch (err) {
         if (err.name === 'AbortError') return
-        // Backend not available yet → use smart fallback
-        setMovie(pickFallback(debouncedSliders))
         setError('backend_offline')
       } finally {
         setLoading(false)

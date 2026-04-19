@@ -1,18 +1,13 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 
-const MIN_YEAR = 1970
+const MIN_YEAR = 1920
 const MAX_YEAR = 2026
 
 export default function YearRangeSlider({ yearFrom, yearTo, onChangeFrom, onChangeTo }) {
-  // Percentage positions for the visual fill
-  const fromPct = ((yearFrom - MIN_YEAR) / (MAX_YEAR - MIN_YEAR)) * 100
-  const toPct = ((yearTo - MIN_YEAR) / (MAX_YEAR - MIN_YEAR)) * 100
-
-  const trackFill = {
-    left: `${fromPct}%`,
-    width: `${toPct - fromPct}%`,
-  }
+  const range   = MAX_YEAR - MIN_YEAR
+  const fromPct = ((yearFrom - MIN_YEAR) / range) * 100
+  const toPct   = ((yearTo   - MIN_YEAR) / range) * 100
 
   return (
     <motion.div
@@ -38,17 +33,18 @@ export default function YearRangeSlider({ yearFrom, yearTo, onChangeFrom, onChan
         </motion.span>
       </div>
 
-      {/* Dual range container */}
+      {/* Track container */}
       <div className="relative h-8 flex items-center">
         {/* Base track */}
         <div className="absolute inset-x-0 h-2 rounded-full bg-white/10" />
+
         {/* Filled range */}
         <div
           className="absolute h-2 rounded-full bg-amber-400"
-          style={trackFill}
+          style={{ left: `${fromPct}%`, width: `${toPct - fromPct}%` }}
         />
 
-        {/* FROM thumb */}
+        {/* FROM input — pointer-events: none on track, all on thumb (via CSS) */}
         <input
           type="range"
           min={MIN_YEAR}
@@ -59,11 +55,10 @@ export default function YearRangeSlider({ yearFrom, yearTo, onChangeFrom, onChan
             const v = Number(e.target.value)
             if (v < yearTo) onChangeFrom(v)
           }}
-          className="absolute inset-0 w-full mixer-slider opacity-0 h-full cursor-pointer"
-          style={{ zIndex: yearFrom > MAX_YEAR - 5 ? 5 : 3 }}
+          className="year-slider from"
         />
 
-        {/* TO thumb */}
+        {/* TO input */}
         <input
           type="range"
           min={MIN_YEAR}
@@ -74,25 +69,14 @@ export default function YearRangeSlider({ yearFrom, yearTo, onChangeFrom, onChan
             const v = Number(e.target.value)
             if (v > yearFrom) onChangeTo(v)
           }}
-          className="absolute inset-0 w-full mixer-slider opacity-0 h-full cursor-pointer"
-          style={{ zIndex: 4 }}
-        />
-
-        {/* Visual thumbs */}
-        <div
-          className="absolute w-6 h-6 bg-white rounded-full shadow-lg border-2 border-black pointer-events-none z-10"
-          style={{ left: `calc(${fromPct}% - 12px)` }}
-        />
-        <div
-          className="absolute w-6 h-6 bg-amber-400 rounded-full shadow-lg border-2 border-black pointer-events-none z-10"
-          style={{ left: `calc(${toPct}% - 12px)` }}
+          className="year-slider to"
         />
       </div>
 
       {/* Axis labels */}
       <div className="flex justify-between px-1 text-white/35 text-xs select-none">
         <span>{MIN_YEAR}</span>
-        <span>Clásico ← → Moderno</span>
+        <span>Clasico &larr; &rarr; Moderno</span>
         <span>{MAX_YEAR}</span>
       </div>
     </motion.div>

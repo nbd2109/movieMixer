@@ -1,167 +1,413 @@
 """
-CineMixer Backend — FastAPI
-Endpoint: GET /api/movies/mix
-Traduce los 5 sliders del frontend en una petición a TMDB
-y devuelve la película más relevante.
+CineMixer Backend v2.0 — FastAPI
+Arquitectura: SQLite local (IMDb) para selección + TMDB para enriquecimiento.
+
+Flujo por request:
+  1. translate_vibes()  — convierte sliders a VibeConstraints
+  2. build_query()      — construye SQL parametrizado
+  3. Fallback loop      — relaja restricciones si no hay resultados
+  4. pick_one()         — elige 1 película aleatoria del pool (con sesgo opcional)
+  5. enrich_tmdb()      — añade póster y sinopsis desde TMDB (best-effort)
 """
 
+import copy
 import os
 import random
-from dotenv import load_dotenv
-from fastapi import FastAPI, Query, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+import sqlite3
+from dataclasses import dataclass, field
+from typing import Optional
+
 import httpx
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
-TMDB_BASE = "https://api.themoviedb.org/3"
-TMDB_IMG  = "https://image.tmdb.org/t/p/original"
+TMDB_BASE    = "https://api.themoviedb.org/3"
+TMDB_IMG     = "https://image.tmdb.org/t/p/original"
+DB_PATH      = os.path.join(os.path.dirname(__file__), "movies.db")
 
-app = FastAPI(title="CineMixer API", version="0.1.0")
+# Géneros a excluir siempre (no son películas reales de cine)
+ALWAYS_EXCLUDE = ["Adult", "News", "Reality-TV", "Talk-Show", "Game-Show"]
 
+# Umbrales de Cerebro calibrados contra percentiles reales de la BD:
+#   P99  = 187.120 votos  (top 1%   → ~1.800 pelís)
+#   P95  =  24.616 votos  (top 5%   → ~7.200 pelís)
+#   P90  =   7.717 votos  (top 10%  → ~14.500 pelís)
+#   P85  =   3.000 votos  (top 15%  → ~21.700 pelís)
+# Cerebro LOW  (0-35):  >= 100.000  → ~2.500 pelís  — blockbusters reales
+# Cerebro MID (36-69):  >= 15.000   → ~8.000 pelís  — mainstream de calidad
+# Cerebro HIGH (70-100): 3.000–50.000 → ~10.000 pelís — autor/nicho
+
+app = FastAPI(title="CineMixer API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:4173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:4173",
+    ],
     allow_methods=["GET"],
     allow_headers=["*"],
 )
 
-# ── Mapeo de sliders a géneros TMDB ────────────────────────────────────────────
-#
-# Adrenalina alta  → Acción (28), Thriller (53)
-# Adrenalina baja  → Drama (18), Romance (10749)
-# Tensión alta     → Terror (27), Misterio (9648)
-# Tensión baja     → Comedia (35), Familiar (10751)
-# Cerebro alto     → Historia (36), Documental (99), Crimen (80)
-# Cerebro bajo     → Aventura (12), Ciencia ficción (878), Fantasía (14)
 
-ADRENALINE_HIGH = [28, 53]   # Acción, Thriller
-ADRENALINE_LOW  = [18, 10749] # Drama, Romance
-TENSION_HIGH    = [27, 9648]  # Terror, Misterio
-TENSION_LOW     = [35, 10751] # Comedia, Familiar
-CEREBRO_HIGH    = [36, 99, 80] # Historia, Documental, Crimen
-CEREBRO_LOW     = [12, 878, 14] # Aventura, Sci-Fi, Fantasía
+# ══════════════════════════════════════════════════════════════════════════════
+# 1. MODELO DE DATOS
+# ══════════════════════════════════════════════════════════════════════════════
 
-
-def build_genre_ids(adrenaline: int, tension: int, cerebro: int) -> list[int]:
-    """Convierte los 3 sliders en una lista de genre_ids para TMDB."""
-    genres: set[int] = set()
-
-    # Adrenalina: >= 60 → acción/thriller, <= 40 → drama/romance, medio → mezcla
-    if adrenaline >= 60:
-        genres.update(ADRENALINE_HIGH)
-    elif adrenaline <= 40:
-        genres.update(ADRENALINE_LOW)
-    else:
-        genres.add(random.choice(ADRENALINE_HIGH + ADRENALINE_LOW))
-
-    # Tensión
-    if tension >= 60:
-        genres.update(TENSION_HIGH)
-    elif tension <= 40:
-        genres.update(TENSION_LOW)
-    else:
-        genres.add(random.choice(TENSION_HIGH + TENSION_LOW))
-
-    # Cerebro: alto → cine de autor/nicho, bajo → blockbuster/mainstream
-    if cerebro >= 60:
-        genres.update(CEREBRO_HIGH)
-    elif cerebro <= 40:
-        genres.update(CEREBRO_LOW)
-
-    return list(genres)
-
-
-def build_sort_by(cerebro: int) -> str:
+@dataclass
+class VibeConstraints:
     """
-    Cerebro alto  → ordenar por vote_average (cine valorado, no blockbuster)
-    Cerebro bajo  → ordenar por popularity (mainstream)
+    Restricciones resueltas listas para convertirse en SQL.
+
+    genre_groups   → Lista de grupos de géneros. La película debe coincidir
+                     con ≥1 género de CADA grupo (AND entre grupos, OR dentro).
+                     Ejemplo: [['Action','Sci-Fi'], ['Drama']] significa
+                     (Action OR Sci-Fi) AND (Drama).
+
+    exclude_genres → La película NO debe contener ninguno de estos géneros.
+                     Las exclusiones siempre tienen prioridad sobre los grupos.
+
+    priority_genres → Preferencia suave para el selector aleatorio (Cerebro alto).
+                      No es un filtro hard — solo sesga la elección 70/30.
     """
-    if cerebro >= 65:
-        return "vote_average.desc"
-    return "popularity.desc"
+    genre_groups:    list[list[str]] = field(default_factory=list)
+    exclude_genres:  list[str]       = field(default_factory=list)
+    priority_genres: list[str]       = field(default_factory=list)
+    min_votes:  int           = 50_000
+    max_votes:  Optional[int] = None
+    min_rating: float         = 6.5
+    year_from:  int           = 1990
+    year_to:    int           = 2024
 
 
-GENRE_NAMES = {
-    28: "Acción", 53: "Thriller", 18: "Drama", 10749: "Romance",
-    27: "Terror", 9648: "Misterio", 35: "Comedia", 10751: "Familiar",
-    36: "Historia", 99: "Documental", 80: "Crimen",
-    12: "Aventura", 878: "Sci-Fi", 14: "Fantasía",
-}
+# ══════════════════════════════════════════════════════════════════════════════
+# 2. VIBE MATRIX — Traducción de sliders a restricciones
+# ══════════════════════════════════════════════════════════════════════════════
 
+def translate_vibes(
+    genres: list[str],
+    tone: int,
+    cerebro: int,
+    year_from: int,
+    year_to: int,
+) -> VibeConstraints:
+    """
+    Aplica la Vibe Matrix y resuelve colisiones.
+
+    RESOLUCIÓN DE COLISIONES
+    ────────────────────────
+    Las exclusiones siempre ganan. Si el usuario pide Thriller pero Tono=0
+    excluye Thriller, ese género se elimina del grupo. Un grupo que queda
+    vacío se descarta en lugar de generar una query imposible.
+    """
+    c = VibeConstraints(year_from=year_from, year_to=year_to)
+
+    # Excluir siempre géneros no cinematográficos
+    c.exclude_genres += ALWAYS_EXCLUDE
+
+    # ── GENEROS SELECCIONADOS POR EL USUARIO ──────────────────────────────────
+    # Lógica AND: cada género seleccionado es un grupo propio.
+    # La película debe contener TODOS los géneros elegidos.
+    # Si no elige ninguno, no se aplica filtro de género.
+    for genre in genres:
+        c.genre_groups.append([genre])
+
+    # ── SLIDER: TONO / AUDIENCIA ──────────────────────────────────────────────
+    if tone <= 30:
+        # Familiar/Luminoso: excluir oscuridad, requerir tono amable
+        c.exclude_genres += ["Horror", "Crime", "Thriller", "Mystery"]
+        c.genre_groups.append(["Family", "Animation", "Comedy"])
+
+    elif tone >= 70:
+        # Oscuro/Tensión: excluir lo amable, requerir oscuridad
+        c.exclude_genres += ["Family", "Animation", "Comedy"]
+        c.genre_groups.append(["Horror", "Crime", "Mystery", "Thriller"])
+
+    # ── SLIDER: CEREBRO (calibrado con percentiles reales de la BD) ─────────
+    # Distribución real: P50=460 | P90=7.717 | P95=24.616 | P99=187.120 votos
+    if cerebro <= 35:
+        # Blockbuster: top ~1.7% de la BD por votos, nota permisiva
+        # >= 100k votos → ~2.500 peliculas (blockbusters garantizados)
+        c.min_votes  = 100_000
+        c.max_votes  = None
+        c.min_rating = 5.5
+
+    elif cerebro <= 69:
+        # Mainstream de calidad: top ~5-6% por votos, nota decente
+        # >= 15k votos → ~8.000 peliculas conocidas pero no masivas
+        c.min_votes  = 15_000
+        c.max_votes  = None
+        c.min_rating = 6.5
+
+    else:
+        # Cine de autor/nicho: por encima de la media pero sin blockbusters
+        # 3.000–50.000 votos → ~10.000 peliculas (top 10-15%, excluye nivel Marvel)
+        c.min_votes     = 3_000
+        c.max_votes     = 50_000
+        c.min_rating    = 7.3
+        c.priority_genres = ["Biography", "History", "Drama", "Documentary"]
+
+    # ── RESOLUCIÓN DE COLISIONES ──────────────────────────────────────────────
+    # Las exclusiones siempre tienen prioridad absoluta.
+    # Cada grupo de géneros pierde las opciones excluidas.
+    # Un grupo que queda vacío se descarta (no añade restricción imposible).
+    exclude_set = set(c.exclude_genres)
+    c.genre_groups = [
+        [g for g in group if g not in exclude_set]
+        for group in c.genre_groups
+        if any(g not in exclude_set for g in group)  # Descartar grupos imposibles
+    ]
+
+    return c
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3. QUERY BUILDER — Construcción dinámica de SQL parametrizado
+# ══════════════════════════════════════════════════════════════════════════════
+
+def build_query(c: VibeConstraints) -> tuple[str, list]:
+    """
+    Construye un SELECT parametrizado desde VibeConstraints.
+    Usa ',' || genres || ',' para que el LIKE funcione en primer y último género.
+
+    Ejemplo con genre_groups=[['Action','Sci-Fi'], ['Drama']] y exclude=['Horror']:
+        WHERE startYear BETWEEN ? AND ?
+          AND numVotes >= ?
+          AND averageRating >= ?
+          AND (',' || genres || ',') NOT LIKE '%,Horror,%'
+          AND ((',' || genres || ',') LIKE '%,Action,%' OR (',' || genres || ',') LIKE '%,Sci-Fi,%')
+          AND ((',' || genres || ',') LIKE '%,Drama,%')
+        LIMIT 50
+    """
+    clauses: list[str] = []
+    params:  list      = []
+
+    # Rango de años
+    clauses.append("startYear BETWEEN ? AND ?")
+    params += [c.year_from, c.year_to]
+
+    # Votos mínimos
+    clauses.append("numVotes >= ?")
+    params.append(c.min_votes)
+
+    # Votos máximos (solo Cerebro alto — excluye mega-blockbusters)
+    if c.max_votes is not None:
+        clauses.append("numVotes <= ?")
+        params.append(c.max_votes)
+
+    # Nota mínima
+    clauses.append("averageRating >= ?")
+    params.append(c.min_rating)
+
+    # Géneros excluidos (la película NO debe contener ninguno)
+    for genre in c.exclude_genres:
+        clauses.append("(',' || genres || ',') NOT LIKE ?")
+        params.append(f"%,{genre},%")
+
+    # Grupos de géneros requeridos (AND entre grupos, OR dentro de cada grupo)
+    for group in c.genre_groups:
+        sub = " OR ".join(["(',' || genres || ',') LIKE ?" for _ in group])
+        clauses.append(f"({sub})")
+        params += [f"%,{g},%" for g in group]
+
+    sql = f"""
+        SELECT tconst, primaryTitle, startYear, genres, averageRating, numVotes
+        FROM movies
+        WHERE {' AND '.join(clauses)}
+        LIMIT 50
+    """
+    return sql, params
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 4. SISTEMA DE FALLBACK — Relajación progresiva de restricciones
+# ══════════════════════════════════════════════════════════════════════════════
+
+def relax(c: VibeConstraints, step: int) -> Optional[VibeConstraints]:
+    """
+    Relaja las restricciones en orden de menor a mayor impacto.
+    Devuelve None cuando ya no hay nada más que relajar.
+
+    Orden de relajación:
+      Paso 1 → Ampliar rango de años ±10 años (menos impacto en el espíritu de la búsqueda)
+      Paso 2 → Reducir numVotes a la mitad (más películas candidatas)
+      Paso 3 → Eliminar grupos de géneros requeridos (solo quedan exclusiones)
+      Paso 4 → Eliminar exclusiones de géneros (pool máximo)
+      Paso 5 → Eliminar límite máximo de votos (si existía para Cerebro alto)
+    """
+    r = copy.deepcopy(c)
+
+    if step == 1:
+        r.year_from = max(1900, r.year_from - 10)
+        r.year_to   = min(2025, r.year_to   + 10)
+    elif step == 2:
+        r.min_votes = max(100, r.min_votes // 2)
+    elif step == 3:
+        r.genre_groups = []
+    elif step == 4:
+        r.exclude_genres = []
+    elif step == 5:
+        r.max_votes = None
+    else:
+        return None
+
+    return r
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. SELECCIÓN — Aleatorización con sesgo por priority_genres
+# ══════════════════════════════════════════════════════════════════════════════
+
+def pick_one(rows: list[dict], priority_genres: list[str]) -> dict:
+    """
+    Elige 1 película de un pool de hasta 50.
+    Si hay priority_genres (Cerebro alto), 70% de probabilidad de elegir
+    una película que los tenga. El 30% restante garantiza variedad.
+    """
+    if priority_genres:
+        priority_pool = [
+            r for r in rows
+            if any(g in r["genres"] for g in priority_genres)
+        ]
+        if priority_pool and random.random() < 0.70:
+            return random.choice(priority_pool)
+    return random.choice(rows)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6. ENRIQUECIMIENTO TMDB — Póster y sinopsis (best-effort)
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def enrich_tmdb(title: str, year: int) -> dict:
+    """
+    Busca la película en TMDB por título+año para obtener póster y sinopsis.
+    Devuelve {} si TMDB no está configurado o falla — nunca lanza excepción.
+    """
+    if not TMDB_API_KEY:
+        return {}
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(
+                f"{TMDB_BASE}/search/movie",
+                params={
+                    "api_key":  TMDB_API_KEY,
+                    "query":    title,
+                    "year":     year,
+                    "language": "es-ES",
+                },
+            )
+        if resp.status_code != 200:
+            return {}
+        results = resp.json().get("results", [])
+        if not results:
+            return {}
+        hit = results[0]
+        poster = hit.get("poster_path")
+        return {
+            "posterUrl": f"{TMDB_IMG}{poster}" if poster else None,
+            "overview":  hit.get("overview", ""),
+            "tmdbId":    hit.get("id"),
+        }
+    except Exception:
+        return {}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7. HELPERS DE BASE DE DATOS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_query(sql: str, params: list) -> list[dict]:
+    if not os.path.exists(DB_PATH):
+        raise HTTPException(
+            503,
+            detail="Base de datos no encontrada. Ejecuta: python setup_db.py",
+        )
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+    finally:
+        conn.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/movies/mix")
 async def mix(
-    adrenaline: int = Query(50, ge=0, le=100),
-    tension:    int = Query(50, ge=0, le=100),
-    cerebro:    int = Query(50, ge=0, le=100),
-    yearFrom:   int = Query(1990, ge=1900, le=2026),
-    yearTo:     int = Query(2024, ge=1900, le=2026),
+    genres:   str = Query(""),
+    tone:     int = Query(50, ge=0, le=100),
+    cerebro:  int = Query(50, ge=0, le=100),
+    yearFrom: int = Query(1920, ge=1900, le=2026),
+    yearTo:   int = Query(2024, ge=1900, le=2026),
 ):
-    if not TMDB_API_KEY:
-        raise HTTPException(500, "TMDB_API_KEY no configurada")
+    # Parsear géneros (string vacío → lista vacía)
+    genre_list = [g.strip() for g in genres.split(",") if g.strip()] if genres else []
 
-    genre_ids = build_genre_ids(adrenaline, tension, cerebro)
-    sort_by   = build_sort_by(cerebro)
+    # 1. Traducir sliders → restricciones
+    constraints = translate_vibes(genre_list, tone, cerebro, yearFrom, yearTo)
 
-    # vote_count mínimo varía con cerebro: cine de autor tolera menos votos
-    min_votes = 200 if cerebro >= 65 else 500
+    # 2a. Primer intento: con géneros exactos (AND entre todos los seleccionados)
+    sql, params = build_query(constraints)
+    rows = run_query(sql, params)
+    genre_match = "exact"
 
-    params = {
-        "api_key": TMDB_API_KEY,
-        "language": "es-ES",
-        "sort_by": sort_by,
-        "with_genres": "|".join(str(g) for g in genre_ids),
-        "primary_release_date.gte": f"{yearFrom}-01-01",
-        "primary_release_date.lte": f"{yearTo}-12-31",
-        "vote_count.gte": min_votes,
-        "page": random.randint(1, 3),  # algo de aleatoriedad en la elección
-    }
+    # 2b. Si no hay resultados con géneros exactos y el usuario eligió géneros,
+    #     devolver 404 — el frontend mostrará el mensaje de "sin coincidencia"
+    if not rows and genre_list:
+        raise HTTPException(
+            404,
+            detail={
+                "code": "no_genre_match",
+                "message": f"Sin películas con: {', '.join(genre_list)}",
+                "genres_requested": genre_list,
+            }
+        )
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(f"{TMDB_BASE}/discover/movie", params=params)
+    # 2c. Sin géneros seleccionados → fallback progresivo normal
+    step    = 0
+    current = constraints
+    while not rows:
+        sql, params = build_query(current)
+        rows = run_query(sql, params)
+        if not rows:
+            step   += 1
+            relaxed = relax(current, step)
+            if relaxed is None:
+                raise HTTPException(500, "Sin resultados tras relajación máxima")
+            current = relaxed
 
-    if resp.status_code != 200:
-        raise HTTPException(502, f"TMDB error {resp.status_code}")
+    # 3. Elegir 1 película
+    movie = pick_one(rows, current.priority_genres)
 
-    data = resp.json()
-    results = data.get("results", [])
+    # 4. Enriquecer con TMDB (póster + sinopsis) — best-effort
+    meta = await enrich_tmdb(movie["primaryTitle"], movie["startYear"])
 
-    if not results:
-        # Fallback: quitar filtro de géneros y volver a intentar
-        params.pop("with_genres")
-        params["page"] = 1
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{TMDB_BASE}/discover/movie", params=params)
-        results = resp.json().get("results", [])
-
-    if not results:
-        raise HTTPException(404, "No se encontraron películas con esos parámetros")
-
-    # Elegir una película del top-5 resultados de forma pseudo-aleatoria
-    movie = random.choice(results[:5])
-
-    poster_path = movie.get("poster_path")
-    poster_url  = f"{TMDB_IMG}{poster_path}" if poster_path else None
-
-    # Traducir genre_ids de la película a nombres
-    movie_genres = [
-        GENRE_NAMES.get(gid, str(gid))
-        for gid in movie.get("genre_ids", [])[:3]
-    ]
+    genres = [g.strip() for g in movie["genres"].split(",") if g.strip()][:3]
 
     return {
-        "title":     movie.get("title", "Sin título"),
-        "year":      int(movie.get("release_date", "0000")[:4]),
-        "overview":  movie.get("overview", ""),
-        "posterUrl": poster_url,
-        "genres":    movie_genres,
-        "rating":    round(movie.get("vote_average", 0), 1),
-        "tmdbId":    movie.get("id"),
+        "title":    movie["primaryTitle"],
+        "year":     movie["startYear"],
+        "genres":   genres,
+        "rating":   round(float(movie["averageRating"]), 1),
+        "tconst":   movie["tconst"],
+        # De TMDB (None si no disponible)
+        "posterUrl": meta.get("posterUrl"),
+        "overview":  meta.get("overview", ""),
+        "tmdbId":    meta.get("tmdbId"),
+        "genre_match": genre_match,
     }
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    try:
+        rows = run_query("SELECT COUNT(*) as cnt FROM movies", [])
+        return {"status": "ok", "movies_in_db": rows[0]["cnt"]}
+    except HTTPException as e:
+        return {"status": "error", "detail": e.detail}

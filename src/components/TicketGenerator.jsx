@@ -1,6 +1,7 @@
 import React, { useRef } from 'react'
 import { motion } from 'framer-motion'
 import html2canvas from 'html2canvas'
+import { TmdbAttributionInline } from './TmdbAttribution'
 
 function SliderBar({ label, emoji, value, color }) {
   return (
@@ -119,9 +120,12 @@ export default function TicketGenerator({ movie, sliders }) {
           </div>
 
           {/* Footer */}
-          <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: '10px', letterSpacing: '2px', marginTop: '8px' }}>
-            CINE-MIXER · cinemixer.app
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '8px' }}>
+            <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: '10px', letterSpacing: '2px' }}>
+              CINE-MIXER
+            </p>
+            <TmdbAttributionInline />
+          </div>
         </div>
       </div>
 
