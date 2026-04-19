@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useDebounce } from './useDebounce'
+import { track, Events } from '../lib/track'
 
 const FALLBACKS = [
   {
@@ -40,7 +41,8 @@ export function useMix(sliders) {
   const debouncedSliders = useDebounce(sliders, 350)
   const [movie, setMovie] = useState(FALLBACKS[0])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null) // null | 'backend_offline' | { code, message, genres }
+  const [error, setError] = useState(null)
+  const mixCountRef = useRef(0)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -72,6 +74,18 @@ export function useMix(sliders) {
 
         const data = await res.json()
         setMovie(data)
+        mixCountRef.current += 1
+        track(Events.MIX_GENERATED, {
+          mix_number:    mixCountRef.current,
+          genres:        debouncedSliders.genres,
+          tone:          debouncedSliders.tone,
+          cerebro:       debouncedSliders.cerebro,
+          year_from:     debouncedSliders.yearFrom,
+          year_to:       debouncedSliders.yearTo,
+          result_title:  data.title,
+          result_year:   data.year,
+          genre_match:   data.genre_match,
+        })
       } catch (err) {
         if (err.name === 'AbortError') return
         setError('backend_offline')

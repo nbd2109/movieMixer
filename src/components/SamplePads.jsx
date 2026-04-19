@@ -1,5 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
+import { track, Events } from '../lib/track'
 
 // 4x4 grid — ordered by group so each row has visual coherence
 export const PADS = [
@@ -27,10 +28,11 @@ export const PADS = [
 
 export default function SamplePads({ selected, onChange }) {
   function toggle(id) {
-    onChange(selected.includes(id)
+    const next = selected.includes(id)
       ? selected.filter(g => g !== id)
       : [...selected, id]
-    )
+    onChange(next)
+    track(Events.PAD_TOGGLED, { genre: id, active: !selected.includes(id), total_active: next.length })
   }
 
   return (
@@ -111,13 +113,13 @@ export default function SamplePads({ selected, onChange }) {
         })}
       </div>
 
-      {/* Status line */}
+      {/* Status line — conversacional, sin jerga técnica */}
       <p className="text-white/20 text-[10px] px-1 tracking-wide">
         {selected.length === 0
-          ? 'Sin filtro — cualquier genero'
+          ? 'Sorprendeme · sin filtro de genero'
           : selected.length === 1
-          ? `1 genero activo · AND logico`
-          : `${selected.length} generos activos · todos requeridos`
+          ? `Solo ${PADS.find(p => p.id === selected[0])?.label.toLowerCase() ?? selected[0]}`
+          : `${selected.map(id => PADS.find(p => p.id === id)?.label.toLowerCase() ?? id).join(' + ')}`
         }
       </p>
     </div>

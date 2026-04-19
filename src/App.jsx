@@ -8,6 +8,8 @@ import SamplePads from './components/SamplePads'
 import TicketGenerator from './components/TicketGenerator'
 import TmdbAttribution from './components/TmdbAttribution'
 import { useMix } from './hooks/useMix'
+import { useRetention } from './hooks/useRetention'
+import { track, Events } from './lib/track'
 
 const INITIAL_SLIDERS = {
   genres: [],
@@ -18,13 +20,21 @@ const INITIAL_SLIDERS = {
 }
 
 export default function App() {
-  const [sliders, setSliders] = useState(INITIAL_SLIDERS)
+  const { getInitialSliders, saveSliders, welcomeMessage } = useRetention(INITIAL_SLIDERS)
+  const [sliders, setSliders] = useState(() => getInitialSliders())
   const [panelOpen, setPanelOpen] = useState(true)
 
   const { movie, loading, error } = useMix(sliders)
 
   function set(key) {
-    return (val) => setSliders((prev) => ({ ...prev, [key]: val }))
+    return (val) => {
+      setSliders((prev) => {
+        const next = { ...prev, [key]: val }
+        saveSliders(next)
+        return next
+      })
+      track(Events.SLIDER_ADJUSTED, { slider: key, value: val })
+    }
   }
 
   return (
@@ -64,6 +74,29 @@ export default function App() {
           >
             <p className="text-red-400 text-xs font-black tracking-widest uppercase">Sin resultados</p>
             <p className="text-white/40 text-xs mt-0.5">Esa combinacion de samples no tiene pelicula</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Welcome back message ── */}
+      <AnimatePresence>
+        {welcomeMessage && (
+          <motion.div
+            key="welcome"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.4 }}
+            className="absolute top-16 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-2xl text-center pointer-events-none"
+            style={{
+              background: 'rgba(251,191,36,0.1)',
+              border: '1px solid rgba(251,191,36,0.25)',
+              backdropFilter: 'blur(12px)',
+            }}
+          >
+            <p className="text-amber-300 text-xs font-medium tracking-wide whitespace-nowrap">
+              {welcomeMessage}
+            </p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -176,7 +209,7 @@ export default function App() {
               >
                 <SamplePads
                   selected={sliders.genres}
-                  onChange={(val) => setSliders((prev) => ({ ...prev, genres: val }))}
+                  onChange={set('genres')}
                 />
               </div>
 

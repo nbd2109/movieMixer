@@ -2,6 +2,7 @@ import React, { useRef } from 'react'
 import { motion } from 'framer-motion'
 import html2canvas from 'html2canvas'
 import { TmdbAttributionInline } from './TmdbAttribution'
+import { track, Events } from '../lib/track'
 
 function SliderBar({ label, emoji, value, color }) {
   return (
@@ -39,6 +40,7 @@ export default function TicketGenerator({ movie, sliders }) {
       a.href = dataUrl
       a.download = `cinemix-${movie.title.replace(/\s+/g, '-').toLowerCase()}.png`
       a.click()
+      track(Events.TICKET_DOWNLOADED, { title: movie.title, year: movie.year })
     } catch (err) {
       console.error('html2canvas error:', err)
     }
