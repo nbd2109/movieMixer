@@ -10,6 +10,7 @@ Flujo por request:
   5. enrich_tmdb()      — añade póster y sinopsis desde TMDB (best-effort)
 """
 
+import asyncio
 import bisect
 import copy
 import json
@@ -76,7 +77,7 @@ _TMDB_GENRE_NAMES: dict[int, str] = {
     28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy",
     80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
     14: "Fantasy", 36: "History", 27: "Horror", 9648: "Mystery",
-    10749: "Romance", 878: "Sci-Fi", 53: "Thriller",
+    10749: "Romance", 878: "Sci-Fi", 53: "Thriller", 10752: "War",
 }
 
 # Lenguas de producción india
@@ -542,13 +543,23 @@ def run_query(sql: str, params: list) -> list[dict]:
 # 8. DESCUBRIMIENTO POR PLATAFORMA — TMDB Discover con datos de JustWatch
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _to_tmdb_ids(genres: list[str]) -> list[str]:
+    """Convierte nombres de género IMDb a IDs de TMDB, ignorando los no mapeados."""
+    return list(dict.fromkeys(
+        str(IMDB_TO_TMDB_GENRE[g]) for g in genres if g in IMDB_TO_TMDB_GENRE
+    ))
+
+
 async def _platform_fetch_page(
     platform_id: int,
     page: int,
-    genre_ids: list[str],
+    genre_filter: str,     # IDs TMDB: coma=AND, pipe=OR, ""=sin filtro
+    exclude_filter: str,   # IDs TMDB separados por coma para excluir
     year_from: int,
     year_to: int,
     region: str,
+    min_votes: int,
+    min_rating: float,
 ) -> list[dict]:
     """
     Una sola llamada a TMDB Discover filtrada por plataforma.
@@ -558,16 +569,20 @@ async def _platform_fetch_page(
         "api_key":              TMDB_API_KEY,
         "watch_region":         region,
         "with_watch_providers": str(platform_id),
-        "sort_by":              "vote_count.desc",
-        "vote_count.gte":       500,       # umbral bajo — la plataforma ya filtra calidad
-        "vote_average.gte":     6.0,
+        "sort_by":              "popularity.desc",
+        # Umbrales escalados por Cerebro pero más laxos que SQLite:
+        # la plataforma ya actúa como filtro de calidad implícito.
+        "vote_count.gte":       max(100, min_votes // 10),
+        "vote_average.gte":     max(5.0, min_rating - 1.0),
         "primary_release_date.gte": f"{year_from}-01-01",
         "primary_release_date.lte": f"{year_to}-12-31",
         "language":             "es-ES",
         "page":                 page,
     }
-    if genre_ids:
-        params["with_genres"] = ",".join(genre_ids)
+    if genre_filter:
+        params["with_genres"] = genre_filter
+    if exclude_filter:
+        params["without_genres"] = exclude_filter
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{TMDB_BASE}/discover/movie", params=params)
@@ -580,38 +595,86 @@ async def _platform_fetch_page(
 
 async def discover_tmdb_by_platform(
     platform_id: int,
-    genres: list[str],
+    user_genres: list[str],
+    tone_genres: list[str],
+    exclude_genres: list[str],
     year_from: int,
     year_to: int,
-) -> dict | None:
+    min_votes: int,
+    min_rating: float,
+) -> tuple[dict | None, str]:
     """
-    Devuelve una película aleatoria disponible en la plataforma vía TMDB Discover.
+    Devuelve (película, genre_match) disponible en la plataforma vía TMDB Discover.
     Los datos de disponibilidad son aportados por JustWatch a través de TMDB.
 
-    Estrategia de búsqueda (de más a menos restrictiva):
-      1. Región ES, con géneros, páginas 1–5 (pool de variedad)
-      2. Región ES, sin géneros
-      3. Región US, con géneros  (fallback regional)
-      4. Región US, sin géneros
+    Jerarquía de género:
+      · user_genres: géneros del usuario (AND en TMDB = coma).
+      · tone_genres: géneros del tono cuando el usuario no eligió pads (OR = pipe).
+      · exclude_genres: géneros excluidos por Tono extremo → without_genres en TMDB.
 
-    Devuelve None si TMDB no está configurado o no encuentra nada.
+    Estrategia de búsqueda (de más a menos restrictiva):
+      Con géneros de usuario:
+        1. AND en ES  (deben tener TODOS los géneros pedidos)
+        2. OR  en ES  (basta con UNO — "algo parecido")
+        3. AND en US
+        4. OR  en US
+        5. Sin filtro en ES  (fallback de último recurso)
+        6. Sin filtro en US
+      Sin géneros de usuario pero con géneros de Tono:
+        1. OR en ES  (los géneros del Tono son OR por naturaleza)
+        2. OR en US
+        3. Sin filtro en ES
+        4. Sin filtro en US
+      Sin ningún género:
+        1. Sin filtro en ES
+        2. Sin filtro en US
+
+    Los pasos 5-6 (sin filtro de género) siempre devuelven genre_match='approximate'
+    para que el frontend informe al usuario.
     """
     if not TMDB_API_KEY:
-        return None
+        return None, "exact"
 
-    genre_ids = list(dict.fromkeys(
-        str(IMDB_TO_TMDB_GENRE[g]) for g in genres if g in IMDB_TO_TMDB_GENRE
-    ))
+    user_ids    = _to_tmdb_ids(user_genres)
+    tone_ids    = _to_tmdb_ids(tone_genres)
+    exclude_str = ",".join(_to_tmdb_ids(exclude_genres))
 
-    async def _pool(genre_ids_: list[str], region: str) -> list[dict]:
-        # Pedir 3 páginas en paralelo para un pool con variedad real
-        pages = random.sample(range(1, 6), min(3, 5))
-        import asyncio
-        batches = await asyncio.gather(
-            *[_platform_fetch_page(platform_id, p, genre_ids_, year_from, year_to, region)
-              for p in pages]
-        )
-        # Aplanar y deduplicar por id
+    # Secuencia de intentos: (genre_filter, region, genre_match)
+    if user_ids:
+        and_str = ",".join(user_ids)   # TMDB: deben tener TODOS
+        or_str  = "|".join(user_ids)   # TMDB: basta con UNO
+        attempts = [
+            (and_str, "ES", "exact"),
+            (or_str,  "ES", "approximate"),
+            (and_str, "US", "exact"),
+            (or_str,  "US", "approximate"),
+            ("",      "ES", "approximate"),
+            ("",      "US", "approximate"),
+        ]
+    elif tone_ids:
+        or_str = "|".join(tone_ids)    # Tono: OR por naturaleza
+        attempts = [
+            (or_str, "ES", "exact"),
+            (or_str, "US", "exact"),
+            ("",     "ES", "approximate"),
+            ("",     "US", "approximate"),
+        ]
+    else:
+        attempts = [
+            ("", "ES", "exact"),
+            ("", "US", "exact"),
+        ]
+
+    async def _pool(genre_filter: str, region: str) -> list[dict]:
+        # 3 páginas aleatorias de 1-15 → pool de hasta 60 films con variedad real
+        pages = random.sample(range(1, 16), 3)
+        batches = await asyncio.gather(*[
+            _platform_fetch_page(
+                platform_id, p, genre_filter, exclude_str,
+                year_from, year_to, region, min_votes, min_rating,
+            )
+            for p in pages
+        ])
         seen: set[int] = set()
         out: list[dict] = []
         for batch in batches:
@@ -621,48 +684,36 @@ async def discover_tmdb_by_platform(
                     out.append(r)
         return out
 
-    results: list[dict] = []
+    def _format(hit: dict, match: str) -> dict:
+        poster       = hit.get("poster_path")
+        release_date = hit.get("release_date", "")
+        release_year = int(release_date[:4]) if release_date and len(release_date) >= 4 else None
+        genres_out   = [
+            _TMDB_GENRE_NAMES[gid]
+            for gid in hit.get("genre_ids", [])
+            if gid in _TMDB_GENRE_NAMES
+        ][:3]
+        return {
+            "title":       hit.get("title", ""),
+            "year":        release_year,
+            "genres":      genres_out,
+            "rating":      round(float(hit.get("vote_average", 0)), 1),
+            "runtime":     None,
+            "posterUrl":   f"{TMDB_IMG}{poster}" if poster else None,
+            "overview":    hit.get("overview", ""),
+            "tmdbId":      hit.get("id"),
+            "genre_match": match,
+        }
 
-    for (gids, region) in [
-        (genre_ids,  "ES"),
-        ([],         "ES"),
-        (genre_ids,  "US"),
-        ([],         "US"),
-    ]:
-        results = await _pool(gids, region)
-        if results:
-            break
+    for (genre_filter, region, match_label) in attempts:
+        results = await _pool(genre_filter, region)
+        valid   = [r for r in results if r.get("original_language") not in INDIAN_LANGUAGES]
+        if not valid:
+            valid = results  # si solo hay producciones indias, usarlas antes que nada
+        if valid:
+            return _format(random.choice(valid), match_label), match_label
 
-    if not results:
-        return None
-
-    # Filtrar producciones indias
-    valid = [r for r in results if r.get("original_language") not in INDIAN_LANGUAGES]
-    if not valid:
-        valid = results
-
-    hit = random.choice(valid)
-
-    poster       = hit.get("poster_path")
-    release_date = hit.get("release_date", "")
-    release_year = int(release_date[:4]) if release_date and len(release_date) >= 4 else None
-    genres_out   = [
-        _TMDB_GENRE_NAMES[gid]
-        for gid in hit.get("genre_ids", [])
-        if gid in _TMDB_GENRE_NAMES
-    ][:3]
-
-    return {
-        "title":     hit.get("title", ""),
-        "year":      release_year,
-        "genres":    genres_out,
-        "rating":    round(float(hit.get("vote_average", 0)), 1),
-        "runtime":   None,
-        "posterUrl": f"{TMDB_IMG}{poster}" if poster else None,
-        "overview":  hit.get("overview", ""),
-        "tmdbId":    hit.get("id"),
-        "genre_match": "platform",
-    }
+    return None, "exact"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -684,16 +735,30 @@ async def mix(
 
     # ── RUTA PLATAFORMA — TMDB Discover con datos de JustWatch ───────────────
     if platform and platform in PLATFORM_IDS:
-        result = await discover_tmdb_by_platform(
-            platform_id = PLATFORM_IDS[platform],
-            genres      = genre_list,
-            year_from   = yearFrom,
-            year_to     = yearTo,
+        # Aplicar Vibe Matrix también en la ruta de plataforma para que
+        # Cerebro y Tono tengan efecto real (umbrales de votos/rating y géneros).
+        plat_constraints = translate_vibes(genre_list, tone, cerebro, yearFrom, yearTo)
+
+        # Géneros del Tono (OR group) — solo cuando el usuario no eligió pads.
+        # Si eligió géneros, ya están en genre_list y plat_constraints.user_genres.
+        tone_genres = (
+            [g for group in plat_constraints.genre_groups for g in group]
+            if not genre_list and plat_constraints.genre_groups
+            else []
+        )
+
+        result, _ = await discover_tmdb_by_platform(
+            platform_id    = PLATFORM_IDS[platform],
+            user_genres    = genre_list,
+            tone_genres    = tone_genres,
+            exclude_genres = plat_constraints.exclude_genres,
+            year_from      = yearFrom,
+            year_to        = yearTo,
+            min_votes      = plat_constraints.min_votes,
+            min_rating     = plat_constraints.min_vibe_score,
         )
         if result:
             return result
-        # No caer al SQLite: una película sin verificación de plataforma sería
-        # engañosa para el usuario. Devolver 404 con código específico.
         raise HTTPException(
             404,
             detail={
