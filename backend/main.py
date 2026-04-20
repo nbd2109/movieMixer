@@ -194,13 +194,18 @@ class VibeConstraints:
     """
     Restricciones resueltas listas para convertirse en SQL.
 
+    user_genres     → Géneros que eligió el usuario en los pads (guardados aparte
+                      para que el fallback pueda preservarlos más tiempo).
     genre_groups    → AND entre grupos, OR dentro de cada grupo.
+                      Cuando el usuario elige géneros, cada uno es un grupo propio.
+                      Cuando NO elige ninguno, el Tono añade un grupo OR de géneros afines.
     exclude_genres  → Exclusiones hard. Siempre tienen prioridad.
     priority_genres → Sesgo suave en pick_one() (70/30).
     min_votes       → Umbral mínimo de votos (exponencial continua).
     max_votes       → Techo de votos — excluye blockbusters en modo autor.
     min_vibe_score  → Bayesian Weighted Rating mínimo (curva cóncava continua).
     """
+    user_genres:     list[str]       = field(default_factory=list)
     genre_groups:    list[list[str]] = field(default_factory=list)
     exclude_genres:  list[str]       = field(default_factory=list)
     priority_genres: list[str]       = field(default_factory=list)
@@ -276,6 +281,15 @@ def translate_vibes(
     """
     Aplica la Vibe Matrix y resuelve colisiones.
 
+    GÉNEROS DE USUARIO vs GÉNEROS DE TONO
+    ──────────────────────────────────────
+    Cuando el usuario elige géneros en los pads, son la restricción principal.
+    El Tono solo añade un sesgo suave (priority_genres) dentro de esa selección
+    — no impone géneros adicionales obligatorios.
+
+    Cuando el usuario NO elige géneros, el Tono sí añade un grupo OR de géneros
+    afines como requisito suave, que puede relajarse en el fallback.
+
     RESOLUCIÓN DE COLISIONES
     ────────────────────────
     Las exclusiones siempre ganan. Si el usuario pide Thriller pero Tono=0
@@ -287,25 +301,27 @@ def translate_vibes(
     # Excluir siempre géneros no cinematográficos
     c.exclude_genres += ALWAYS_EXCLUDE
 
-    # ── GENEROS SELECCIONADOS POR EL USUARIO ──────────────────────────────────
+    # ── GÉNEROS SELECCIONADOS POR EL USUARIO ─────────────────────────────────
     # Lógica AND: cada género seleccionado es un grupo propio.
     # La película debe contener TODOS los géneros elegidos.
-    # Si no elige ninguno, no se aplica filtro de género.
+    c.user_genres = list(genres)
     for genre in genres:
         c.genre_groups.append([genre])
 
     # ── SLIDER: TONO — interpolación continua entre 8 anclas ─────────────────
     tone_weights = interpolate_tone(tone)
 
-    # Géneros con peso alto → grupo OR requerido
-    required = [g for g, w in tone_weights.items() if w >= 0.45]
-    if required:
-        c.genre_groups.append(required)
-
-    # Géneros con peso muy alto → sesgo en pick_one
+    # Géneros con peso muy alto → sesgo suave en pick_one (siempre aplica)
     c.priority_genres += [g for g, w in tone_weights.items() if w >= 0.65]
 
-    # Exclusiones hard solo en extremos absolutos
+    # Grupo OR del Tono → solo se añade como requisito cuando el usuario
+    # NO ha elegido géneros explícitos. Si eligió géneros, el Tono solo sesga.
+    if not genres:
+        required = [g for g, w in tone_weights.items() if w >= 0.45]
+        if required:
+            c.genre_groups.append(required)
+
+    # Exclusiones hard solo en extremos absolutos del slider
     if tone <= 10:
         c.exclude_genres += _TONE_EXCLUDE_LOW
     elif tone >= 90:
@@ -315,8 +331,7 @@ def translate_vibes(
     pop = genre_popularity_factor(tone_weights)
     c.min_votes, c.max_votes, c.min_vibe_score = cerebro_to_constraints(cerebro, pop)
 
-    # En modo autor (cerebro alto) se sesgua hacia géneros que tienden a tener
-    # alta nota con pocos votos — es donde viven las joyas ocultas.
+    # En modo autor (cerebro alto) se sesga hacia géneros de alta nota/pocos votos
     if cerebro >= 70:
         c.priority_genres += ["Biography", "History", "Drama", "Documentary"]
 
@@ -328,7 +343,7 @@ def translate_vibes(
     c.genre_groups = [
         [g for g in group if g not in exclude_set]
         for group in c.genre_groups
-        if any(g not in exclude_set for g in group)  # Descartar grupos imposibles
+        if any(g not in exclude_set for g in group)
     ]
 
     return c
@@ -414,25 +429,31 @@ def relax(c: VibeConstraints, step: int) -> Optional[VibeConstraints]:
     Devuelve None cuando ya no hay nada más que relajar.
 
     Orden de relajación:
-      Paso 1 → Ampliar rango de años ±10 años (menos impacto en el espíritu de la búsqueda)
-      Paso 2 → Reducir numVotes a la mitad (más películas candidatas)
-      Paso 3 → Eliminar grupos de géneros requeridos (solo quedan exclusiones)
-      Paso 4 → Eliminar exclusiones de géneros (pool máximo)
-      Paso 5 → Eliminar límite máximo de votos (si existía para Cerebro alto)
+      Paso 1 → Ampliar rango de años ±10 años
+      Paso 2 → Reducir numVotes a la mitad y bajar min_vibe
+      Paso 3 → Eliminar el grupo OR del Tono; conservar géneros del usuario
+      Paso 4 → Eliminar también los géneros del usuario (pool sin filtro de género)
+      Paso 5 → Eliminar exclusiones de géneros
+      Paso 6 → Eliminar límite máximo de votos (Cerebro alto)
     """
     r = copy.deepcopy(c)
 
     if step == 1:
         r.year_from = max(1900, r.year_from - 10)
-        r.year_to   = min(2026, r.year_to   + 10)
+        r.year_to   = min(2030, r.year_to   + 10)
     elif step == 2:
         r.min_votes      = max(200, r.min_votes // 2)
         r.min_vibe_score = max(5.0, r.min_vibe_score - 0.5)
     elif step == 3:
-        r.genre_groups = []
+        # Conservar solo los grupos del usuario (descartar el grupo OR del Tono)
+        r.genre_groups = [[g] for g in r.user_genres]
     elif step == 4:
-        r.exclude_genres = []
+        # Ahora sí eliminar todo filtro de género
+        r.genre_groups = []
+        r.user_genres  = []
     elif step == 5:
+        r.exclude_genres = []
+    elif step == 6:
         r.max_votes = None
     else:
         return None
@@ -653,8 +674,8 @@ async def mix(
     genres:     str            = Query(""),
     tone:       int            = Query(50, ge=0, le=100),
     cerebro:    int            = Query(50, ge=0, le=100),
-    yearFrom:   int            = Query(1920, ge=1900, le=2026),
-    yearTo:     int            = Query(2024, ge=1900, le=2026),
+    yearFrom:   int            = Query(1920, ge=1900, le=2030),
+    yearTo:     int            = Query(2026, ge=1900, le=2030),
     runtimeMin: Optional[int]  = Query(None, ge=1),
     runtimeMax: Optional[int]  = Query(None, ge=1),
     platform:   str            = Query(""),
