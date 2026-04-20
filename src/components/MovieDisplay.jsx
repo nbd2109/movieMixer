@@ -1,5 +1,14 @@
-import React, { useRef } from 'react'
+import React, { useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+
+const IDLE_PHRASES = [
+  'El proyector está encendido.\nFalta la película.',
+  'Cien años de cine.\nElige cómo empezar.',
+  'El plato está en blanco.\nEmpieza la sesión.',
+  'Tus sliders.\nTu película.',
+  'La sala oscura espera\ntu señal.',
+  'Cada mezcla lleva\na una película distinta.',
+]
 
 function formatRuntime(minutes) {
   if (!minutes) return null
@@ -12,6 +21,43 @@ function formatRuntime(minutes) {
 
 export default function MovieDisplay({ movie, loading }) {
   const overviewRef = useRef(null)
+  const [phrase] = useState(() => IDLE_PHRASES[Math.floor(Math.random() * IDLE_PHRASES.length)])
+
+  // Estado inicial — sin película todavía
+  if (!movie && !loading) {
+    return (
+      <div className="flex flex-col items-center text-center w-full max-w-md select-none pointer-events-none">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
+          className="flex flex-col items-center gap-3"
+        >
+          {/* Línea decorativa */}
+          <div className="flex items-center gap-3 w-full justify-center">
+            <div className="h-px flex-1 max-w-[60px]" style={{ background: 'rgba(255,255,255,0.1)' }} />
+            <span className="text-[9px] tracking-[0.35em] uppercase" style={{ color: 'rgba(255,255,255,0.2)' }}>
+              CineMix
+            </span>
+            <div className="h-px flex-1 max-w-[60px]" style={{ background: 'rgba(255,255,255,0.1)' }} />
+          </div>
+
+          {/* Frase */}
+          <p
+            className="font-black leading-tight tracking-tight text-shadow-film whitespace-pre-line"
+            style={{ fontSize: 'clamp(1.6rem, 5vw, 3rem)', color: 'rgba(255,255,255,0.85)' }}
+          >
+            {phrase}
+          </p>
+
+          {/* Indicador */}
+          <p className="text-[11px] tracking-[0.2em] uppercase" style={{ color: 'rgba(255,255,255,0.2)' }}>
+            Ajusta los controles y pulsa Mezclar
+          </p>
+        </motion.div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col items-center text-center px-8 w-full max-w-lg select-none pointer-events-none">

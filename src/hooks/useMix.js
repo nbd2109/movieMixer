@@ -39,12 +39,15 @@ const FALLBACKS = [
 
 export function useMix(sliders, remixKey = 0) {
   const debouncedSliders = useDebounce(sliders, 350)
-  const [movie, setMovie] = useState(FALLBACKS[0])
+  const [movie, setMovie]   = useState(null)   // null = estado inicial, sin fetch automático
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError]   = useState(null)
   const mixCountRef = useRef(0)
 
   useEffect(() => {
+    // No lanzar fetch en carga inicial — esperar al primer clic en Mezclar
+    if (remixKey === 0) return
+
     const controller = new AbortController()
 
     async function fetchMix() {
@@ -71,7 +74,6 @@ export function useMix(sliders, remixKey = 0) {
         })
 
         if (res.status === 404) {
-          // Combinación de géneros sin resultados — mostrar mensaje, no cambiar la película
           const body = await res.json()
           setError({ code: 'no_genre_match', genres: body.detail?.genres_requested ?? [] })
           setLoading(false)
@@ -84,18 +86,20 @@ export function useMix(sliders, remixKey = 0) {
         setMovie(data)
         mixCountRef.current += 1
         track(Events.MIX_GENERATED, {
-          mix_number:    mixCountRef.current,
-          genres:        debouncedSliders.genres,
-          tone:          debouncedSliders.tone,
-          cerebro:       debouncedSliders.cerebro,
-          year_from:     debouncedSliders.yearFrom,
-          year_to:       debouncedSliders.yearTo,
-          result_title:  data.title,
-          result_year:   data.year,
-          genre_match:   data.genre_match,
+          mix_number:   mixCountRef.current,
+          genres:       debouncedSliders.genres,
+          tone:         debouncedSliders.tone,
+          cerebro:      debouncedSliders.cerebro,
+          year_from:    debouncedSliders.yearFrom,
+          year_to:      debouncedSliders.yearTo,
+          result_title: data.title,
+          result_year:  data.year,
+          genre_match:  data.genre_match,
         })
       } catch (err) {
         if (err.name === 'AbortError') return
+        // Backend offline: usar fallback solo si ya hay una sesión activa
+        if (!movie) setMovie(FALLBACKS[Math.floor(Math.random() * FALLBACKS.length)])
         setError('backend_offline')
       } finally {
         setLoading(false)
@@ -104,7 +108,6 @@ export function useMix(sliders, remixKey = 0) {
 
     fetchMix()
     return () => controller.abort()
-  // remixKey is not debounced — fires immediately on remix click
   }, [debouncedSliders, remixKey])
 
   return { movie, loading, error }
