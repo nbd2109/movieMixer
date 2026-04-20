@@ -115,11 +115,13 @@ CINEMIX_LAST_VISIT       → timestamp última visita
 - [x] **¿Dónde verla?** — watch providers de TMDB (cierra el journey)
 - [x] **Persistencia localStorage** — la app recuerda al usuario (`cmx_sliders`, `cmx_last_visit`)
 
-### P0.5 — Bugs críticos pre-deploy ✓ COMPLETO (Sprint 0, 2026-04-20)
+### P0.5 — Bugs críticos + coherencia de algoritmos ✓ COMPLETO (2026-04-20)
 - [x] **CORS desde ENV** — `ALLOWED_ORIGINS` en `.env`, fallback a localhost
-- [x] **`War` mapeado a TMDB** — `"War": 10752` en `IMDB_TO_TMDB_GENRE`
+- [x] **`War` mapeado a TMDB** — `"War": 10752` en `IMDB_TO_TMDB_GENRE` y `_TMDB_GENRE_NAMES`
 - [x] **`yearTo` dinámico** — `new Date().getFullYear()`, se actualiza solo
-- [x] **Géneros vs Tono** — el Tono ya no añade requisitos de género sobre la selección del usuario
+- [x] **Géneros vs Tono** — el Tono no añade requisitos sobre la selección del usuario; solo sesga `priority_genres`
+- [x] **Fallback transparente** — badge "algo parecido" cuando el resultado es aproximado; OR antes de 404
+- [x] **Ruta de plataforma con Vibe Matrix** — Cerebro y Tono ya tienen efecto en plataformas; `without_genres` bloquea géneros incompatibles; AND→OR→sin-filtro en lugar de AND→sin-filtro; páginas random 1-15 para variedad real
 
 ### P1 — Diferenciador real
 - [x] **Mensaje de bienvenida** — retorno personalizado por tiempo (`useRetention.js`)

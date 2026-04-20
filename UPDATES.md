@@ -89,6 +89,41 @@ Los 4 bugs críticos aplicados y pusheados (ver tabla arriba).
 
 **Archivos:** `backend/main.py` — `VibeConstraints`, `translate_vibes()`, `relax()`
 
+### Fix: fallback transparente — "algo parecido" (`backend/main.py` + `MovieDisplay.jsx`)
+
+**Problema:** La función `relax` relajaba constraints silenciosamente y devolvía algo completamente distinto a lo pedido sin decirle nada al usuario. Además, con géneros del usuario seleccionados, un AND sin resultados devolvía 404 directo sin intentar nada más.
+
+**Solución:**
+- Géneros del usuario: si AND no encuentra nada y hay múltiples géneros, intenta OR antes de 404. `genre_match = "approximate"`.
+- Sin géneros (solo tono): `for step in range(1,8)` limpio en lugar del `while` con bug (ejecutaba la query vacía dos veces). Pasos 1-2 → `"relaxed"`, pasos 3+ → `"approximate"`.
+- `MovieDisplay.jsx`: badge ámbar con texto rotatorio cuando `genre_match === "approximate"`: *"Lo más parecido que encontramos"*, *"No es exacto, pero va en esa onda"*, *"La mezcla más cercana disponible"*.
+
+**Archivos:** `backend/main.py` endpoint `/api/movies/mix`, `src/components/MovieDisplay.jsx`
+
+---
+
+### Fix: ruta de plataforma usa Vibe Matrix (`backend/main.py`)
+
+**Problema principal (el caso Carrie):** Con Comedy+Family + plataforma, si no encontraba AND en ES caía directamente a sin-género en ES, devolviendo cualquier film de la plataforma incluyendo Horror. Además el Tono y Cerebro eran completamente ignorados en la ruta de plataforma.
+
+**Causas raíz:**
+- `vote_count.gte: 500` y `vote_average.gte: 6.0` siempre fijos — Cerebro sin efecto
+- Fallback `géneros(AND) → sin géneros` sin paso OR intermedio
+- Géneros del Tono no pasados cuando el usuario no tenía pads activos
+- Sin `without_genres` — géneros incompatibles podían aparecer en cualquier fallback
+- `sort_by: vote_count.desc` + páginas 1-5 → siempre los mismos 100 films top
+- `asyncio` importado dentro de closure; `War` ausente de `_TMDB_GENRE_NAMES`
+
+**Solución completa:**
+- `_platform_fetch_page`: nuevo parámetro `genre_filter` (string, coma=AND / pipe=OR), `exclude_filter` → `without_genres`, `min_votes` y `min_rating` escalados por Cerebro (`max(100, min_votes//10)`), `sort_by: popularity.desc`, páginas random 1-15
+- `discover_tmdb_by_platform`: nueva firma con `user_genres`, `tone_genres`, `exclude_genres`, `min_votes`, `min_rating`. Devuelve `(resultado, genre_match)`. Secuencia: AND/ES → OR/ES → AND/US → OR/US → sin-género/ES → sin-género/US. Sin-género siempre → `"approximate"`.
+- Endpoint: computa `translate_vibes()` también para ruta de plataforma; extrae `tone_genres` del grupo OR del Tono cuando no hay pads; pasa `exclude_genres` → `without_genres` bloquea géneros incompatibles en TODOS los pasos del fallback
+- `asyncio` movido a imports de nivel superior; `War: 10752` añadido a `_TMDB_GENRE_NAMES`
+
+**Resultado:** Comedy+Family+Netflix busca `35,10751 AND` → `35|10751 OR` → sin género. Tone=0+plataforma busca `Comedy|Animation|Family` y excluye `Horror,Crime,Thriller,Mystery` en todos los pasos → Carrie imposible.
+
+**Archivos:** `backend/main.py` — `_platform_fetch_page`, `discover_tmdb_by_platform`, endpoint `/api/movies/mix`
+
 ---
 
 ## Estado del backlog
@@ -99,6 +134,8 @@ Los 4 bugs críticos aplicados y pusheados (ver tabla arriba).
 - [x] `yearTo: new Date().getFullYear()` — 2026-04-20
 - [x] `mixCountRef` persistente en localStorage — 2026-04-20
 - [x] Géneros usuario vs Tono: el Tono ya no sobreescribe la selección del usuario — 2026-04-20
+- [x] Fallback transparente: "algo parecido" cuando resultado no es exacto — 2026-04-20
+- [x] Ruta de plataforma usa Vibe Matrix completa (Tono, Cerebro, exclusiones) — 2026-04-20
 
 ### Sprint 1 — Viralidad
 - [ ] Botón Compartir (Web Share API + clipboard fallback)
