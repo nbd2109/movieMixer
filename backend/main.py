@@ -10,6 +10,7 @@ Flujo por request:
   5. enrich_tmdb()      — añade póster y sinopsis desde TMDB (best-effort)
 """
 
+import bisect
 import copy
 import os
 import random
@@ -31,6 +32,53 @@ DB_PATH      = os.path.join(os.path.dirname(__file__), "movies.db")
 
 # Géneros a excluir siempre (no son películas reales de cine)
 ALWAYS_EXCLUDE = ["Adult", "News", "Reality-TV", "Talk-Show", "Game-Show"]
+
+# ── TONE ANCHORS ──────────────────────────────────────────────────────────────
+# 8 puntos del espectro emocional, cada uno con afinidades por género (0.0–1.0).
+# Entre anclas se interpola linealmente → cada valor del slider es único.
+#
+#   afinidad >= 0.65  →  género preferido (pool prioritario en pick_one)
+#   afinidad >= 0.45  →  incluido en el grupo OR requerido
+#   afinidad <= 0.10  →  excluido en los extremos (solo anclas 0 y 100)
+#
+TONE_ANCHORS: list[tuple[int, dict[str, float]]] = [
+    (0,   {'Comedy': 1.0, 'Animation': 0.9, 'Family': 0.8, 'Adventure': 0.2}),
+    (15,  {'Comedy': 0.8, 'Adventure': 0.7, 'Family': 0.5, 'Romance': 0.3}),
+    (30,  {'Romance': 0.8, 'Comedy': 0.5, 'Drama': 0.3, 'Adventure': 0.3}),
+    (45,  {'Drama': 0.8, 'Romance': 0.5, 'Biography': 0.4}),
+    (55,  {'Drama': 0.9, 'Biography': 0.4, 'History': 0.4, 'Mystery': 0.3}),
+    (70,  {'Thriller': 0.8, 'Crime': 0.7, 'Mystery': 0.5, 'Drama': 0.3}),
+    (85,  {'Crime': 0.8, 'Thriller': 0.7, 'Horror': 0.6, 'Mystery': 0.3}),
+    (100, {'Horror': 1.0, 'Crime': 0.6, 'Thriller': 0.5}),
+]
+
+_TONE_VALUES = [a[0] for a in TONE_ANCHORS]
+
+# Géneros que se excluyen en los extremos absolutos del slider
+_TONE_EXCLUDE_LOW  = ['Horror', 'Crime', 'Thriller', 'Mystery']   # tone <= 10
+_TONE_EXCLUDE_HIGH = ['Comedy', 'Family', 'Animation', 'Romance'] # tone >= 90
+
+
+def interpolate_tone(tone: int) -> dict[str, float]:
+    """
+    Devuelve {genre: weight} para una posición del slider (0–100).
+    Interpola linealmente entre las dos anclas más cercanas.
+    """
+    if tone <= _TONE_VALUES[0]:
+        return dict(TONE_ANCHORS[0][1])
+    if tone >= _TONE_VALUES[-1]:
+        return dict(TONE_ANCHORS[-1][1])
+
+    idx   = bisect.bisect_right(_TONE_VALUES, tone) - 1
+    t0, g0 = TONE_ANCHORS[idx]
+    t1, g1 = TONE_ANCHORS[idx + 1]
+    alpha  = (tone - t0) / (t1 - t0)   # 0.0 → ancla izquierda, 1.0 → ancla derecha
+
+    all_genres = set(g0) | set(g1)
+    return {
+        g: g0.get(g, 0.0) * (1 - alpha) + g1.get(g, 0.0) * alpha
+        for g in all_genres
+    }
 
 # Umbrales de Cerebro calibrados contra percentiles reales de la BD:
 #   P99  = 187.120 votos  (top 1%   → ~1.800 pelís)
@@ -116,16 +164,24 @@ def translate_vibes(
     for genre in genres:
         c.genre_groups.append([genre])
 
-    # ── SLIDER: TONO / AUDIENCIA ──────────────────────────────────────────────
-    if tone <= 30:
-        # Familiar/Luminoso: excluir oscuridad, requerir tono amable
-        c.exclude_genres += ["Horror", "Crime", "Thriller", "Mystery"]
-        c.genre_groups.append(["Family", "Animation", "Comedy"])
+    # ── SLIDER: TONO — interpolación continua entre 8 anclas ─────────────────
+    # Cada posición del slider tiene un mix único de afinidades por género.
+    # No hay dead zones: todo el rango 0–100 produce resultados distintos.
+    tone_weights = interpolate_tone(tone)
 
-    elif tone >= 70:
-        # Oscuro/Tensión: excluir lo amable, requerir oscuridad
-        c.exclude_genres += ["Family", "Animation", "Comedy"]
-        c.genre_groups.append(["Horror", "Crime", "Mystery", "Thriller"])
+    # Géneros con peso alto → grupo OR requerido (la peli debe tener al menos uno)
+    required = [g for g, w in tone_weights.items() if w >= 0.45]
+    if required:
+        c.genre_groups.append(required)
+
+    # Géneros con peso muy alto → sesgo en pick_one (sin ser requisito hard)
+    c.priority_genres += [g for g, w in tone_weights.items() if w >= 0.65]
+
+    # Exclusiones hard solo en los extremos absolutos del slider
+    if tone <= 10:
+        c.exclude_genres += _TONE_EXCLUDE_LOW
+    elif tone >= 90:
+        c.exclude_genres += _TONE_EXCLUDE_HIGH
 
     # ── SLIDER: CEREBRO (calibrado con percentiles reales de la BD) ─────────
     # Distribución real: P50=460 | P90=7.717 | P95=24.616 | P99=187.120 votos
@@ -218,7 +274,8 @@ def build_query(c: VibeConstraints) -> tuple[str, list]:
         SELECT tconst, primaryTitle, startYear, genres, averageRating, numVotes
         FROM movies
         WHERE {' AND '.join(clauses)}
-        LIMIT 50
+        ORDER BY RANDOM()
+        LIMIT 100
     """
     return sql, params
 

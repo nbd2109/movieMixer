@@ -21,7 +21,7 @@ BASICS_GZ    = os.path.join(HERE, "title.basics.tsv.gz")
 RATINGS_GZ   = os.path.join(HERE, "title.ratings.tsv.gz")
 BASICS_URL   = "https://datasets.imdbws.com/title.basics.tsv.gz"
 RATINGS_URL  = "https://datasets.imdbws.com/title.ratings.tsv.gz"
-MIN_VOTES    = 100   # Filtro en importación — elimina títulos sin audiencia
+MIN_VOTES    = 1_000  # Filtro en importación — solo películas con audiencia real
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
