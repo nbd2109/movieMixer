@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react'
+import React, { useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 
 function formatRuntime(minutes) {
@@ -12,12 +12,6 @@ function formatRuntime(minutes) {
 
 export default function MovieDisplay({ movie, loading }) {
   const overviewRef = useRef(null)
-  const [truncated, setTruncated] = useState(false)
-
-  useEffect(() => {
-    const el = overviewRef.current
-    if (el) setTruncated(el.scrollHeight > el.clientHeight + 2)
-  }, [movie?.overview])
 
   return (
     <div className="flex flex-col items-center text-center px-8 w-full max-w-lg select-none pointer-events-none">
@@ -84,12 +78,12 @@ export default function MovieDisplay({ movie, loading }) {
             <div className="flex flex-col items-center gap-1 max-w-md w-full">
               <p
                 ref={overviewRef}
-                className="text-sm leading-relaxed line-clamp-2 text-center"
+                className="text-sm leading-relaxed text-center"
                 style={{ color: 'rgba(255,255,255,0.38)' }}
               >
                 {movie.overview}
               </p>
-              {truncated && movie?.tmdbId && (
+              {movie?.tmdbId && (
                 <a
                   href={`https://www.themoviedb.org/movie/${movie.tmdbId}`}
                   target="_blank"

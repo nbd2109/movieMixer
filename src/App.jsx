@@ -57,14 +57,44 @@ export default function App() {
       {/* ── Poster ── */}
       <PosterBackground posterUrl={movie?.posterUrl} loading={loading} />
 
-      {/* ── Área de película — ocupa el lado izquierdo, empuja hacia la derecha cuando el panel está abierto ── */}
+      {/* ── Área de película — ocupa el lado izquierdo ── */}
       <motion.div
-        className="absolute inset-y-0 left-0 z-10 flex flex-col items-center justify-center gap-4 px-8"
+        className="absolute inset-y-0 left-0 z-10 flex flex-col items-center px-8"
         animate={{ right: panelOpen ? PANEL_W : '0%' }}
         transition={SPRING}
       >
-        <MovieDisplay movie={movie} loading={loading} />
-        <WatchProviders tmdbId={movie?.tmdbId} movieTitle={movie?.title} />
+        {/* Contenido centrado verticalmente */}
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 w-full min-h-0">
+          <MovieDisplay movie={movie} loading={loading} />
+          <WatchProviders tmdbId={movie?.tmdbId} movieTitle={movie?.title} />
+        </div>
+
+        {/* REMIX al fondo del mismo contenedor para que el centrado sea real */}
+        <div className="pb-8 flex justify-center w-full flex-shrink-0">
+          <motion.button
+            onClick={handleRemix}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.93 }}
+            disabled={loading}
+            className="flex items-center gap-2 px-5 py-2 rounded-full font-semibold text-xs tracking-widest uppercase"
+            style={{
+              background:    'linear-gradient(135deg, #e8a020, #c07818)',
+              color:         '#000',
+              boxShadow:     loading ? 'none' : '0 0 20px rgba(232,160,32,0.4), 0 2px 12px rgba(0,0,0,0.6)',
+              opacity:       loading ? 0.5 : 1,
+              letterSpacing: '0.15em',
+            }}
+          >
+            <motion.span
+              animate={{ rotate: spinning ? 360 : 0 }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
+              style={{ display: 'inline-block' }}
+            >
+              ↻
+            </motion.span>
+            Mezclar
+          </motion.button>
+        </div>
       </motion.div>
 
       {/* ── Logo ── */}
@@ -149,37 +179,6 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* ── REMIX — centrado en el área de película, anclado abajo ── */}
-      <motion.div
-        className="absolute bottom-8 left-0 z-30 flex justify-center"
-        animate={{ right: panelOpen ? PANEL_W : '0%' }}
-        transition={SPRING}
-      >
-        <motion.button
-          onClick={handleRemix}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.93 }}
-          disabled={loading}
-          className="flex items-center gap-2 px-5 py-2 rounded-full font-semibold text-xs tracking-widest uppercase"
-          style={{
-            background:    'linear-gradient(135deg, #e8a020, #c07818)',
-            color:         '#000',
-            boxShadow:     loading ? 'none' : '0 0 20px rgba(232,160,32,0.4), 0 2px 12px rgba(0,0,0,0.6)',
-            opacity:       loading ? 0.5 : 1,
-            letterSpacing: '0.15em',
-          }}
-        >
-          <motion.span
-            animate={{ rotate: spinning ? 360 : 0 }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
-            style={{ display: 'inline-block' }}
-          >
-            ↻
-          </motion.span>
-          Mezclar
-        </motion.button>
-      </motion.div>
 
       {/* ══════════════════════════════════
           MESA DE MEZCLAS — panel lateral derecho
