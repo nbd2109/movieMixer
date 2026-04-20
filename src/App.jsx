@@ -7,6 +7,7 @@ import YearRangeSlider    from './components/YearRangeSlider'
 import SamplePads         from './components/SamplePads'
 import TmdbAttribution    from './components/TmdbAttribution'
 import WatchProviders     from './components/WatchProviders'
+import RuntimeFilter      from './components/RuntimeFilter'
 import { useMix }         from './hooks/useMix'
 import { useRetention }   from './hooks/useRetention'
 import { track, Events }  from './lib/track'
@@ -20,6 +21,7 @@ const INITIAL_SLIDERS = {
   cerebro:  50,
   yearFrom: 1920,
   yearTo:   2024,
+  runtime:  null,
 }
 
 export default function App() {
@@ -247,6 +249,13 @@ export default function App() {
                   onChangeFrom={set('yearFrom')}
                   onChangeTo={set('yearTo')}
                 />
+              </section>
+
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
+
+              {/* Duración */}
+              <section>
+                <RuntimeFilter value={sliders.runtime} onChange={set('runtime')} />
               </section>
 
               {/* Attribution */}

@@ -158,11 +158,13 @@ class VibeConstraints:
     genre_groups:    list[list[str]] = field(default_factory=list)
     exclude_genres:  list[str]       = field(default_factory=list)
     priority_genres: list[str]       = field(default_factory=list)
-    min_votes:      int           = 15_000
-    max_votes:      Optional[int] = None
-    min_vibe_score: float         = 6.0
-    year_from:      int           = 1990
-    year_to:        int           = 2024
+    min_votes:       int           = 15_000
+    max_votes:       Optional[int] = None
+    min_vibe_score:  float         = 6.0
+    year_from:       int           = 1990
+    year_to:         int           = 2024
+    runtime_min:     Optional[int] = None
+    runtime_max:     Optional[int] = None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -335,8 +337,16 @@ def build_query(c: VibeConstraints) -> tuple[str, list]:
         clauses.append(f"({sub})")
         params += [f"%,{g},%" for g in group]
 
+    # Duración (solo cuando el usuario activa el filtro)
+    if c.runtime_min is not None:
+        clauses.append("runtimeMinutes >= ?")
+        params.append(c.runtime_min)
+    if c.runtime_max is not None:
+        clauses.append("runtimeMinutes <= ?")
+        params.append(c.runtime_max)
+
     sql = f"""
-        SELECT tconst, primaryTitle, startYear, genres, averageRating, numVotes
+        SELECT tconst, primaryTitle, startYear, genres, averageRating, numVotes, runtimeMinutes
         FROM movies
         WHERE {' AND '.join(clauses)}
         ORDER BY RANDOM()
@@ -463,16 +473,20 @@ def run_query(sql: str, params: list) -> list[dict]:
 
 @app.get("/api/movies/mix")
 async def mix(
-    genres:   str = Query(""),
-    tone:     int = Query(50, ge=0, le=100),
-    cerebro:  int = Query(50, ge=0, le=100),
-    yearFrom: int = Query(1920, ge=1900, le=2026),
-    yearTo:   int = Query(2024, ge=1900, le=2026),
+    genres:     str            = Query(""),
+    tone:       int            = Query(50, ge=0, le=100),
+    cerebro:    int            = Query(50, ge=0, le=100),
+    yearFrom:   int            = Query(1920, ge=1900, le=2026),
+    yearTo:     int            = Query(2024, ge=1900, le=2026),
+    runtimeMin: Optional[int]  = Query(None, ge=1),
+    runtimeMax: Optional[int]  = Query(None, ge=1),
 ):
     genre_list = [g.strip() for g in genres.split(",") if g.strip()] if genres else []
 
     # 1. Traducir sliders → restricciones
     constraints = translate_vibes(genre_list, tone, cerebro, yearFrom, yearTo)
+    constraints.runtime_min = runtimeMin
+    constraints.runtime_max = runtimeMax
 
     # 2a. Primer intento: con géneros exactos (AND entre todos los seleccionados)
     sql, params = build_query(constraints)
@@ -517,6 +531,7 @@ async def mix(
         "year":     movie["startYear"],
         "genres":   genres,
         "rating":   round(float(movie["averageRating"]), 1),
+        "runtime":  movie.get("runtimeMinutes"),
         "tconst":   movie["tconst"],
         # De TMDB (None si no disponible)
         "posterUrl": meta.get("posterUrl"),

@@ -51,12 +51,20 @@ export function useMix(sliders, remixKey = 0) {
       setLoading(true)
       setError(null)
       try {
+        const RUNTIME_BOUNDS = {
+          short:  { runtimeMax: 89 },
+          medium: { runtimeMin: 90, runtimeMax: 140 },
+          long:   { runtimeMin: 141 },
+        }
+        const runtimeParams = RUNTIME_BOUNDS[debouncedSliders.runtime] ?? {}
+
         const params = new URLSearchParams({
           genres:   debouncedSliders.genres.join(','),
           tone:     debouncedSliders.tone,
           cerebro:  debouncedSliders.cerebro,
           yearFrom: debouncedSliders.yearFrom,
           yearTo:   debouncedSliders.yearTo,
+          ...runtimeParams,
         })
         const res = await fetch(`/api/movies/mix?${params}`, {
           signal: controller.signal,

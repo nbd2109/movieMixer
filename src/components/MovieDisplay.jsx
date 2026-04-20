@@ -1,7 +1,24 @@
-import React from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 
+function formatRuntime(minutes) {
+  if (!minutes) return null
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  if (h === 0) return `${m}min`
+  if (m === 0) return `${h}h`
+  return `${h}h ${m}min`
+}
+
 export default function MovieDisplay({ movie, loading }) {
+  const overviewRef = useRef(null)
+  const [truncated, setTruncated] = useState(false)
+
+  useEffect(() => {
+    const el = overviewRef.current
+    if (el) setTruncated(el.scrollHeight > el.clientHeight + 2)
+  }, [movie?.overview])
+
   return (
     <div className="flex flex-col items-center text-center px-8 w-full max-w-lg select-none pointer-events-none">
       <AnimatePresence mode="wait">
@@ -54,16 +71,38 @@ export default function MovieDisplay({ movie, loading }) {
                 </span>
               </>
             )}
+            {movie?.runtime && (
+              <>
+                <span style={{ color: 'rgba(255,255,255,0.2)' }}>·</span>
+                <span>{formatRuntime(movie.runtime)}</span>
+              </>
+            )}
           </div>
 
-          {/* Synopsis */}
+          {/* Synopsis + TMDB link when truncated */}
           {movie?.overview && (
-            <p
-              className="text-sm leading-relaxed line-clamp-2 max-w-md"
-              style={{ color: 'rgba(255,255,255,0.38)' }}
-            >
-              {movie.overview}
-            </p>
+            <div className="flex flex-col items-center gap-1 max-w-md w-full">
+              <p
+                ref={overviewRef}
+                className="text-sm leading-relaxed line-clamp-2 text-center"
+                style={{ color: 'rgba(255,255,255,0.38)' }}
+              >
+                {movie.overview}
+              </p>
+              {truncated && movie?.tmdbId && (
+                <a
+                  href={`https://www.themoviedb.org/movie/${movie.tmdbId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="pointer-events-auto text-[10px] tracking-wide transition-colors"
+                  style={{ color: 'rgba(255,255,255,0.25)' }}
+                  onMouseEnter={e => e.target.style.color = 'rgba(255,255,255,0.5)'}
+                  onMouseLeave={e => e.target.style.color = 'rgba(255,255,255,0.25)'}
+                >
+                  Ver en TMDB ↗
+                </a>
+              )}
+            </div>
           )}
         </motion.div>
       </AnimatePresence>
