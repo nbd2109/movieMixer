@@ -115,10 +115,11 @@ CINEMIX_LAST_VISIT       → timestamp última visita
 - [x] **¿Dónde verla?** — watch providers de TMDB (cierra el journey)
 - [x] **Persistencia localStorage** — la app recuerda al usuario (`cmx_sliders`, `cmx_last_visit`)
 
-### P0.5 — Bugs críticos pre-deploy (Sprint 0, PENDIENTE)
-- [ ] **CORS desde ENV** — sin esto la app solo funciona en localhost
-- [ ] **`War` mapeado a TMDB** — filtro de género silencioso con plataforma activa
-- [ ] **`yearTo` dinámico** — hoy películas 2025-2026 están excluidas por defecto
+### P0.5 — Bugs críticos pre-deploy ✓ COMPLETO (Sprint 0, 2026-04-20)
+- [x] **CORS desde ENV** — `ALLOWED_ORIGINS` en `.env`, fallback a localhost
+- [x] **`War` mapeado a TMDB** — `"War": 10752` en `IMDB_TO_TMDB_GENRE`
+- [x] **`yearTo` dinámico** — `new Date().getFullYear()`, se actualiza solo
+- [x] **Géneros vs Tono** — el Tono ya no añade requisitos de género sobre la selección del usuario
 
 ### P1 — Diferenciador real
 - [x] **Mensaje de bienvenida** — retorno personalizado por tiempo (`useRetention.js`)

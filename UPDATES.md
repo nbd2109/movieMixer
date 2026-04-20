@@ -58,24 +58,47 @@
 - **Eliminado** `src/hooks/useDebounce.js` — código muerto desde el fix del Debounce Misfire. No se importaba en ningún archivo.
 - **Actualizado** `.gitignore` — añadidos `backend/title.akas.tsv.gz` (~2GB) y `backend/*.log` para que no entren por accidente.
 
-### Bugs críticos identificados (Sprint 0 — pendientes)
+### Bugs críticos — Sprint 0 ✓ COMPLETO
 
 | # | Bug | Archivo | Fix |
 |---|-----|---------|-----|
-| 1 | **CORS hardcodeado** — bloqueante para cualquier deploy | `backend/main.py` ~línea 183 | `os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")` |
-| 2 | **`War` no mapeado** en `IMDB_TO_TMDB_GENRE` — filtro silencioso en ruta plataforma | `backend/main.py` | `"War": 10752` |
-| 3 | **`yearTo: 2024`** — películas 2025-2026 invisibles por defecto | `src/App.jsx` línea 21 | `yearTo: new Date().getFullYear()` |
-| 4 | **`mixCountRef` no persiste** — `mix_number` en analytics siempre empieza en 1 | `src/hooks/useMix.js` | persistir en `localStorage` |
+| 1 | **CORS hardcodeado** | `backend/main.py` | `os.getenv("ALLOWED_ORIGINS", ...).split(",")` — 2026-04-20 |
+| 2 | **`War` no mapeado** en `IMDB_TO_TMDB_GENRE` | `backend/main.py` | `"War": 10752` — 2026-04-20 |
+| 3 | **`yearTo: 2024`** | `src/App.jsx` | `yearTo: new Date().getFullYear()` — 2026-04-20 |
+| 4 | **`mixCountRef` no persiste** | `src/hooks/useMix.js` | `localStorage cmx_mix_count` — 2026-04-20 |
+
+---
+
+## Sesión 2026-04-20 (Sprint 0 + fix géneros)
+
+### Sprint 0 completado
+Los 4 bugs críticos aplicados y pusheados (ver tabla arriba).
+
+### Fix crítico: géneros del usuario vs Tono (`backend/main.py`)
+
+**Problema:** Al seleccionar géneros en los pads (ej. Mystery + War), `translate_vibes()` añadía silenciosamente el grupo OR del Tono como requisito AND adicional. Con tone=40, la query resultante era `Mystery AND War AND (Drama OR Romance)`, devolviendo películas que casualmente tenían esos tres tags — a menudo con géneros inesperados como Horror.
+
+**Causa raíz:** El Tono siempre añadía `genre_groups` independientemente de si el usuario había elegido géneros o no.
+
+**Solución:**
+- Cuando el usuario elige géneros: el Tono solo contribuye a `priority_genres` (sesgo suave 70/30 en `pick_one`) — nunca añade `genre_groups`
+- Cuando el usuario NO elige géneros: el Tono sigue añadiendo su grupo OR como antes
+- `VibeConstraints`: nuevo campo `user_genres` para separar géneros del usuario de los del Tono
+- `relax()`: paso 3 ahora preserva `user_genres` al relajar; paso 4 elimina todo; pasos 5-6 son exclusiones y `max_votes`
+- `yearTo` en el endpoint: cap subido de 2026 a 2030
+
+**Archivos:** `backend/main.py` — `VibeConstraints`, `translate_vibes()`, `relax()`
 
 ---
 
 ## Estado del backlog
 
-### Sprint 0 — Bugs críticos (PENDIENTE)
-- [ ] CORS desde ENV (`ALLOWED_ORIGINS`)
-- [ ] `"War": 10752` en `IMDB_TO_TMDB_GENRE`
-- [ ] `yearTo: new Date().getFullYear()`
-- [ ] `mixCountRef` persistente en localStorage
+### Sprint 0 — Bugs críticos ✓ COMPLETO
+- [x] CORS desde ENV (`ALLOWED_ORIGINS`) — 2026-04-20
+- [x] `"War": 10752` en `IMDB_TO_TMDB_GENRE` — 2026-04-20
+- [x] `yearTo: new Date().getFullYear()` — 2026-04-20
+- [x] `mixCountRef` persistente en localStorage — 2026-04-20
+- [x] Géneros usuario vs Tono: el Tono ya no sobreescribe la selección del usuario — 2026-04-20
 
 ### Sprint 1 — Viralidad
 - [ ] Botón Compartir (Web Share API + clipboard fallback)
