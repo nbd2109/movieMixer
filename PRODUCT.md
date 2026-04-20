@@ -110,25 +110,32 @@ CINEMIX_LAST_VISIT       → timestamp última visita
 
 ## 4. Backlog Priorizado por ICP
 
-### P0 — Rompe si no está
-- [ ] **Botón REMIX** — pedir otra película sin cambiar nada
-- [ ] **¿Dónde verla?** — watch providers de TMDB (cierra el journey)
-- [ ] **Persistencia localStorage** — la app recuerda al usuario
+### P0 — Rompe si no está ✓ COMPLETO
+- [x] **Botón REMIX** — pedir otra película sin cambiar nada
+- [x] **¿Dónde verla?** — watch providers de TMDB (cierra el journey)
+- [x] **Persistencia localStorage** — la app recuerda al usuario (`cmx_sliders`, `cmx_last_visit`)
+
+### P0.5 — Bugs críticos pre-deploy (Sprint 0, PENDIENTE)
+- [ ] **CORS desde ENV** — sin esto la app solo funciona en localhost
+- [ ] **`War` mapeado a TMDB** — filtro de género silencioso con plataforma activa
+- [ ] **`yearTo` dinámico** — hoy películas 2025-2026 están excluidas por defecto
 
 ### P1 — Diferenciador real
-- [ ] **Mensaje de bienvenida** — retorno personalizado por tiempo
+- [x] **Mensaje de bienvenida** — retorno personalizado por tiempo (`useRetention.js`)
+- [x] **Tracking layer** — `track.js` → `POST /api/events` (funcional, listo para PostHog)
+- [x] **Filtro de duración** — corto/normal/largo (`RuntimeFilter.jsx` + `migrate_runtime.py`)
+- [x] **Filtro de plataforma** — Netflix/HBO/Prime/Disney+/Movistar (`PlatformFilter.jsx`)
 - [ ] **URLs de mezcla compartibles** — slug legible + OG image
-- [ ] **Tracking layer** — `src/lib/track.js` sin dependencias externas
+- [ ] **Botón Compartir** — Web Share API en móvil, clipboard en desktop
 
 ### P2 — Mejora la experiencia
-- [ ] **Historial / setlist** — últimas 5 películas de la sesión
-- [ ] **Duración** — filtro corto/normal/largo (requiere re-importar IMDb con runtimeMinutes)
+- [ ] **Historial / setlist** — últimas 5 películas de la sesión (sessionStorage)
 - [ ] **Migración a Next.js** — SSR para SEO programático
+- [ ] **Responsive mobile** — bottom sheet en lugar de panel lateral
 
 ### P3 — Pulido
-- [ ] **Web Share API** — compartir nativo en móvil
 - [ ] **Presets de mezcla** — "Noche de terror", "Domingo tranquilo", etc.
-- [ ] **Animación de REMIX** — feedback visual del re-mix
+- [ ] **Redis caché TMDB** — evita throttling a partir de 50 usuarios concurrentes
 
 ---
 
@@ -147,13 +154,15 @@ CINEMIX_LAST_VISIT       → timestamp última visita
 
 | Capa | Tecnología | Estado |
 |------|-----------|--------|
-| Frontend | React + Vite + Tailwind + Framer Motion | Producción |
-| Backend | FastAPI + Python | Producción |
-| BD principal | SQLite local (144k películas IMDb) | Producción |
-| Metadatos | TMDB API (poster + sinopsis + watch providers) | Parcial |
+| Frontend | React 18 + Vite + Tailwind + Framer Motion | ✓ Producción (SPA, no SSR) |
+| Backend | FastAPI + Python + uvicorn | ✓ Producción |
+| BD principal | SQLite local (144k películas IMDb, Bayesian WR) | ✓ Producción |
+| Géneros | Tabla relacional `movie_genre` (111k filas, indexada) | ✓ Producción |
+| Metadatos | TMDB API (póster + sinopsis + watch providers vía JustWatch) | ✓ Producción |
+| Analytics | `track.js` → `sendBeacon` → `POST /api/events` | ✓ Funcional (sin proveedor externo aún) |
 | SEO | — | Pendiente (requiere Next.js) |
-| Analytics | — | Pendiente (data layer listo) |
-| Auth | Ninguno (por diseño) | Permanente |
+| Caché | — | Pendiente (Redis/Upstash) |
+| Auth | Ninguno (por diseño permanente) | — |
 
 ---
 

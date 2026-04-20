@@ -47,25 +47,55 @@
 
 ---
 
-## Estado del backlog (referencia PRD §8)
+---
 
-### Fase 1 — Remediación Crítica ✓ COMPLETA
-- [x] Fix integración TMDB (`/find/{tconst}`) — 2026-04-20
-- [x] Fix Debounce Misfire (sliders no auto-disparan) — 2026-04-20
-- [x] Fix Poster Leak (preload + onError) — 2026-04-20
-- [x] Géneros relacionales: tabla `movie_genre` + índices, `build_query` usa subqueries — 2026-04-20
-- [x] Analytics: `/api/events` en FastAPI, `ENDPOINT='/api/events'` en `track.js` — 2026-04-20
-- [x] `run_in_threadpool` en todos los `run_query` de endpoints async — 2026-04-20
+## Sesión 2026-04-20 (auditoría + limpieza)
 
-### Fase 2 — SEO y Viralidad
-- [ ] Migración a Next.js App Router
-- [ ] Rutas `/mezcla/[slug]` con metadatos estáticos
-- [ ] Open Graph images dinámicas (`@vercel/og`)
-- [ ] Botón Share (Web Share API nativa)
+### Análisis de ingeniería completo
+- Añadido `cinemix_analysis.md` — auditoría de 15 fases: mapa del repo, flujo completo del sistema, bugs críticos, arquitectura propuesta, plan de construcción por sprints, prompts listos para usar.
 
-### Fase 3 — Backend escalable
-- [ ] PostgreSQL (Supabase / Neon) en lugar de SQLite local
-- [ ] Redis (Upstash) para cachear watch providers (TTL 48h)
+### Limpieza de repo
+- **Eliminado** `src/hooks/useDebounce.js` — código muerto desde el fix del Debounce Misfire. No se importaba en ningún archivo.
+- **Actualizado** `.gitignore` — añadidos `backend/title.akas.tsv.gz` (~2GB) y `backend/*.log` para que no entren por accidente.
+
+### Bugs críticos identificados (Sprint 0 — pendientes)
+
+| # | Bug | Archivo | Fix |
+|---|-----|---------|-----|
+| 1 | **CORS hardcodeado** — bloqueante para cualquier deploy | `backend/main.py` ~línea 183 | `os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")` |
+| 2 | **`War` no mapeado** en `IMDB_TO_TMDB_GENRE` — filtro silencioso en ruta plataforma | `backend/main.py` | `"War": 10752` |
+| 3 | **`yearTo: 2024`** — películas 2025-2026 invisibles por defecto | `src/App.jsx` línea 21 | `yearTo: new Date().getFullYear()` |
+| 4 | **`mixCountRef` no persiste** — `mix_number` en analytics siempre empieza en 1 | `src/hooks/useMix.js` | persistir en `localStorage` |
+
+---
+
+## Estado del backlog
+
+### Sprint 0 — Bugs críticos (PENDIENTE)
+- [ ] CORS desde ENV (`ALLOWED_ORIGINS`)
+- [ ] `"War": 10752` en `IMDB_TO_TMDB_GENRE`
+- [ ] `yearTo: new Date().getFullYear()`
+- [ ] `mixCountRef` persistente en localStorage
+
+### Sprint 1 — Viralidad
+- [ ] Botón Compartir (Web Share API + clipboard fallback)
+- [ ] URL de mezcla compartible (`?tone=70&cerebro=30&genres=Thriller,Crime`)
+- [ ] Open Graph tags dinámicos por película
+
+### Sprint 2 — Producción real
+- [ ] README + `.env.example`
+- [ ] Rate limiting (`slowapi`, 20 req/min en `/api/movies/mix`)
+- [ ] Redis (Upstash) para cachear TMDB responses (TTL 7 días `enrich_tmdb`, TTL 48h providers)
+- [ ] Connection pool SQLite con `threading.local()`
+
+### Sprint 3 — SEO (requiere Next.js)
+- [ ] Migración frontend a Next.js App Router
+- [ ] Rutas `/mezcla/[slug]` con SSG
+- [ ] Sitemap programático
+
+### Sprint 4 — Responsive mobile
+- [ ] Panel lateral → bottom sheet en mobile (<768px)
+- [ ] `PANEL_W = '40%'` responsivo
 
 ---
 
@@ -73,9 +103,11 @@
 
 | Problema | Impacto | Dónde |
 |----------|---------|-------|
-| Géneros como string plano `"Action,Drama"` → `LIKE` sin índice | Performance bajo carga alta (50+ RPS) | `backend/main.py` `build_query()` |
-| `sqlite3` nativo en `async def` bloquea el event loop | Concurrencia | `backend/main.py` `run_query()` |
-| `ENDPOINT = null` en `track.js` | Métricas perdidas | `src/lib/track.js` |
+| Sin connection pool SQLite — abre/cierra conexión en cada request | Performance bajo carga | `backend/main.py` `run_query()` |
+| `mixCountRef` useRef(0) — se reinicia en cada recarga | Calidad de analytics | `src/hooks/useMix.js` |
+| Magic strings de color (`#e8a020`, `#080810`) en 6+ archivos | Mantenibilidad | `src/components/` |
+| Sin tests de ningún tipo | Riesgo en refactors | Todo el backend |
+| Sin README — proyecto inoperable para colaboradores nuevos | Onboarding | raíz del repo |
 
 ---
 
@@ -83,9 +115,9 @@
 
 | Capa | Tecnología |
 |------|-----------|
-| Frontend | React 18 + Vite + Tailwind + Framer Motion |
-| Backend | FastAPI + Python + SQLite (144k películas IMDb) |
+| Frontend | React 18 + Vite + Tailwind + Framer Motion (SPA, no SSR) |
+| Backend | FastAPI + Python + SQLite (144k películas IMDb, Bayesian WR) |
 | Metadatos | TMDB API (póster + sinopsis + watch providers vía JustWatch) |
-| Persistencia usuario | localStorage (sin login, por diseño) |
-| Analytics | `track.js` implementado pero sin endpoint conectado |
-| SEO | Pendiente (requiere Next.js) |
+| Persistencia usuario | localStorage (`cmx_*` keys, sin login por diseño) |
+| Analytics | `track.js` → `navigator.sendBeacon` → `POST /api/events` (funcional) |
+| SEO | Pendiente (requiere migración a Next.js) |
