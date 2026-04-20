@@ -50,15 +50,17 @@
     border-radius: 50%;
     background: #fff;
     border: 2px solid rgba(0, 0, 0, 0.8);
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.15), 0 2px 8px rgba(0,0,0,0.7);
+    /* --thumb-shadow se inyecta desde React según hover/drag — fallback estático */
+    box-shadow: var(--thumb-shadow, 0 0 0 1px rgba(255,255,255,0.15), 0 2px 8px rgba(0,0,0,0.7));
     cursor: grab;
-    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    /* box-shadow transition para que el glow haga fade suave al cambiar el CSS var */
+    transition: transform 0.12s ease, box-shadow 0.2s ease;
   }
 
   .mixer-slider::-webkit-slider-thumb:active {
     cursor: grabbing;
     transform: scale(1.25);
-    box-shadow: 0 0 0 3px rgba(255,255,255,0.1), 0 4px 16px rgba(0,0,0,0.9);
+    /* box-shadow lo controla React; solo override el scale aquí */
   }
 
   .mixer-slider::-moz-range-thumb {
