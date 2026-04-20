@@ -8,6 +8,7 @@ import SamplePads         from './components/SamplePads'
 import TmdbAttribution    from './components/TmdbAttribution'
 import WatchProviders     from './components/WatchProviders'
 import RuntimeFilter      from './components/RuntimeFilter'
+import PlatformFilter     from './components/PlatformFilter'
 import { useMix }         from './hooks/useMix'
 import { useRetention }   from './hooks/useRetention'
 import { track, Events }  from './lib/track'
@@ -22,6 +23,7 @@ const INITIAL_SLIDERS = {
   yearFrom: 1920,
   yearTo:   2024,
   runtime:  null,
+  platform: null,
 }
 
 export default function App() {
@@ -145,6 +147,21 @@ export default function App() {
             Backend offline · modo demo
           </motion.div>
         )}
+        {error?.code === 'no_platform_match' && (
+          <motion.div
+            key="no-platform"
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            className="absolute top-14 z-50 px-5 py-2 rounded-xl glass text-center"
+            style={{ left: '30%', transform: 'translateX(-50%)', border: '1px solid rgba(239,68,68,0.3)' }}
+          >
+            <p className="text-red-400 text-[10px] font-semibold tracking-widest uppercase">Sin resultados</p>
+            <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              No hay películas en esta plataforma con esos ajustes
+            </p>
+          </motion.div>
+        )}
         {error?.code === 'no_genre_match' && (
           <motion.div
             key="no-match"
@@ -260,6 +277,13 @@ export default function App() {
               {/* Duración */}
               <section>
                 <RuntimeFilter value={sliders.runtime} onChange={set('runtime')} />
+              </section>
+
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
+
+              {/* Plataforma */}
+              <section>
+                <PlatformFilter value={sliders.platform} onChange={set('platform')} />
               </section>
 
               {/* Attribution */}

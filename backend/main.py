@@ -33,6 +33,48 @@ DB_PATH      = os.path.join(os.path.dirname(__file__), "movies.db")
 # Géneros a excluir siempre (no son películas reales de cine)
 ALWAYS_EXCLUDE = ["Adult", "News", "Reality-TV", "Talk-Show", "Game-Show"]
 
+# ── PLATAFORMAS DE STREAMING ──────────────────────────────────────────────────
+# IDs de proveedor de JustWatch vía TMDB Watch Providers API.
+# Fuente: https://developers.themoviedb.org/3/watch-providers
+PLATFORM_IDS: dict[str, int] = {
+    "netflix": 8,
+    "prime":   119,
+    "disney":  337,
+    "max":     1899,
+    "apple":   350,
+}
+
+# Nombres de géneros IMDb → IDs de géneros TMDB
+IMDB_TO_TMDB_GENRE: dict[str, int] = {
+    "Action":      28,
+    "Adventure":   12,
+    "Animation":   16,
+    "Comedy":      35,
+    "Crime":       80,
+    "Documentary": 99,
+    "Drama":       18,
+    "Family":      10751,
+    "Fantasy":     14,
+    "History":     36,
+    "Horror":      27,
+    "Mystery":     9648,
+    "Romance":     10749,
+    "Sci-Fi":      878,
+    "Thriller":    53,
+    "Biography":   18,   # TMDB no tiene Biography; Drama es la categoría más cercana
+}
+
+# Mapa inverso: ID TMDB → nombre legible (para reconstruir géneros en respuesta)
+_TMDB_GENRE_NAMES: dict[int, str] = {
+    28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy",
+    80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
+    14: "Fantasy", 36: "History", 27: "Horror", 9648: "Mystery",
+    10749: "Romance", 878: "Sci-Fi", 53: "Thriller",
+}
+
+# Lenguas de producción india
+INDIAN_LANGUAGES = {"hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "gu", "ur"}
+
 # ── TONE ANCHORS ──────────────────────────────────────────────────────────────
 # 8 puntos del espectro emocional, cada uno con afinidades por género (0.0–1.0).
 # Entre anclas se interpola linealmente → cada valor del slider es único.
@@ -415,9 +457,10 @@ def pick_one(rows: list[dict], priority_genres: list[str]) -> dict:
 # 6. ENRIQUECIMIENTO TMDB — Póster y sinopsis (best-effort)
 # ══════════════════════════════════════════════════════════════════════════════
 
-async def enrich_tmdb(title: str, year: int) -> dict:
+async def enrich_tmdb(tconst: str) -> dict:
     """
-    Busca la película en TMDB por título+año para obtener póster y sinopsis.
+    Resuelve la película en TMDB usando el ID de IMDb (tconst) vía /find.
+    Esto garantiza un match 1:1 sin ambigüedad por título o año.
     Devuelve {} si TMDB no está configurado o falla — nunca lanza excepción.
     """
     if not TMDB_API_KEY:
@@ -425,17 +468,16 @@ async def enrich_tmdb(title: str, year: int) -> dict:
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.get(
-                f"{TMDB_BASE}/search/movie",
+                f"{TMDB_BASE}/find/{tconst}",
                 params={
-                    "api_key":  TMDB_API_KEY,
-                    "query":    title,
-                    "year":     year,
-                    "language": "es-ES",
+                    "api_key":         TMDB_API_KEY,
+                    "external_source": "imdb_id",
+                    "language":        "es-ES",
                 },
             )
         if resp.status_code != 200:
             return {}
-        results = resp.json().get("results", [])
+        results = resp.json().get("movie_results", [])
         if not results:
             return {}
         hit = results[0]
@@ -469,7 +511,134 @@ def run_query(sql: str, params: list) -> list[dict]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 8. ENDPOINTS
+# 8. DESCUBRIMIENTO POR PLATAFORMA — TMDB Discover con datos de JustWatch
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _platform_fetch_page(
+    platform_id: int,
+    page: int,
+    genre_ids: list[str],
+    year_from: int,
+    year_to: int,
+    region: str,
+) -> list[dict]:
+    """
+    Una sola llamada a TMDB Discover filtrada por plataforma.
+    Devuelve lista vacía en cualquier error — nunca lanza excepción.
+    """
+    params: dict = {
+        "api_key":              TMDB_API_KEY,
+        "watch_region":         region,
+        "with_watch_providers": str(platform_id),
+        "sort_by":              "vote_count.desc",
+        "vote_count.gte":       500,       # umbral bajo — la plataforma ya filtra calidad
+        "vote_average.gte":     6.0,
+        "primary_release_date.gte": f"{year_from}-01-01",
+        "primary_release_date.lte": f"{year_to}-12-31",
+        "language":             "es-ES",
+        "page":                 page,
+    }
+    if genre_ids:
+        params["with_genres"] = ",".join(genre_ids)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{TMDB_BASE}/discover/movie", params=params)
+        if resp.status_code == 200:
+            return resp.json().get("results", [])
+    except Exception:
+        pass
+    return []
+
+
+async def discover_tmdb_by_platform(
+    platform_id: int,
+    genres: list[str],
+    year_from: int,
+    year_to: int,
+) -> dict | None:
+    """
+    Devuelve una película aleatoria disponible en la plataforma vía TMDB Discover.
+    Los datos de disponibilidad son aportados por JustWatch a través de TMDB.
+
+    Estrategia de búsqueda (de más a menos restrictiva):
+      1. Región ES, con géneros, páginas 1–5 (pool de variedad)
+      2. Región ES, sin géneros
+      3. Región US, con géneros  (fallback regional)
+      4. Región US, sin géneros
+
+    Devuelve None si TMDB no está configurado o no encuentra nada.
+    """
+    if not TMDB_API_KEY:
+        return None
+
+    genre_ids = list(dict.fromkeys(
+        str(IMDB_TO_TMDB_GENRE[g]) for g in genres if g in IMDB_TO_TMDB_GENRE
+    ))
+
+    async def _pool(genre_ids_: list[str], region: str) -> list[dict]:
+        # Pedir 3 páginas en paralelo para un pool con variedad real
+        pages = random.sample(range(1, 6), min(3, 5))
+        import asyncio
+        batches = await asyncio.gather(
+            *[_platform_fetch_page(platform_id, p, genre_ids_, year_from, year_to, region)
+              for p in pages]
+        )
+        # Aplanar y deduplicar por id
+        seen: set[int] = set()
+        out: list[dict] = []
+        for batch in batches:
+            for r in batch:
+                if r.get("id") not in seen:
+                    seen.add(r["id"])
+                    out.append(r)
+        return out
+
+    results: list[dict] = []
+
+    for (gids, region) in [
+        (genre_ids,  "ES"),
+        ([],         "ES"),
+        (genre_ids,  "US"),
+        ([],         "US"),
+    ]:
+        results = await _pool(gids, region)
+        if results:
+            break
+
+    if not results:
+        return None
+
+    # Filtrar producciones indias
+    valid = [r for r in results if r.get("original_language") not in INDIAN_LANGUAGES]
+    if not valid:
+        valid = results
+
+    hit = random.choice(valid)
+
+    poster       = hit.get("poster_path")
+    release_date = hit.get("release_date", "")
+    release_year = int(release_date[:4]) if release_date and len(release_date) >= 4 else None
+    genres_out   = [
+        _TMDB_GENRE_NAMES[gid]
+        for gid in hit.get("genre_ids", [])
+        if gid in _TMDB_GENRE_NAMES
+    ][:3]
+
+    return {
+        "title":     hit.get("title", ""),
+        "year":      release_year,
+        "genres":    genres_out,
+        "rating":    round(float(hit.get("vote_average", 0)), 1),
+        "runtime":   None,
+        "posterUrl": f"{TMDB_IMG}{poster}" if poster else None,
+        "overview":  hit.get("overview", ""),
+        "tmdbId":    hit.get("id"),
+        "genre_match": "platform",
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 9. ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/movies/mix")
@@ -481,8 +650,32 @@ async def mix(
     yearTo:     int            = Query(2024, ge=1900, le=2026),
     runtimeMin: Optional[int]  = Query(None, ge=1),
     runtimeMax: Optional[int]  = Query(None, ge=1),
+    platform:   str            = Query(""),
 ):
     genre_list = [g.strip() for g in genres.split(",") if g.strip()] if genres else []
+
+    # ── RUTA PLATAFORMA — TMDB Discover con datos de JustWatch ───────────────
+    if platform and platform in PLATFORM_IDS:
+        result = await discover_tmdb_by_platform(
+            platform_id = PLATFORM_IDS[platform],
+            genres      = genre_list,
+            year_from   = yearFrom,
+            year_to     = yearTo,
+        )
+        if result:
+            return result
+        # No caer al SQLite: una película sin verificación de plataforma sería
+        # engañosa para el usuario. Devolver 404 con código específico.
+        raise HTTPException(
+            404,
+            detail={
+                "code":     "no_platform_match",
+                "platform": platform,
+                "message":  f"Sin resultados en {platform} con estos ajustes",
+            }
+        )
+
+    # ── RUTA SQLite — flujo estándar ──────────────────────────────────────────
 
     # 1. Traducir sliders → restricciones
     constraints = translate_vibes(genre_list, tone, cerebro, yearFrom, yearTo)
@@ -519,33 +712,28 @@ async def mix(
                 raise HTTPException(500, "Sin resultados tras relajación máxima")
             current = relaxed
 
-    # Lenguas de producción india — filtradas vía TMDB original_language
-    INDIAN_LANGUAGES = {"hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "gu", "ur"}
-
     # 3+4. Elegir película y enriquecer; reintentar si TMDB la identifica como india
-    pool = list(rows)  # copia mutable del pool de candidatos
+    pool = list(rows)
     for _ in range(min(10, len(pool))):
         movie = pick_one(pool, current.priority_genres)
-        meta  = await enrich_tmdb(movie["primaryTitle"], movie["startYear"])
+        meta  = await enrich_tmdb(movie["tconst"])
 
         if meta.get("original_language") in INDIAN_LANGUAGES:
-            # Descartar este candidato y probar otro del pool
             pool = [r for r in pool if r["tconst"] != movie["tconst"]]
             if not pool:
                 break
             continue
-        break  # película válida encontrada
+        break
 
-    genres = [g.strip() for g in movie["genres"].split(",") if g.strip()][:3]
+    movie_genres = [g.strip() for g in movie["genres"].split(",") if g.strip()][:3]
 
     return {
         "title":    movie["primaryTitle"],
         "year":     movie["startYear"],
-        "genres":   genres,
+        "genres":   movie_genres,
         "rating":   round(float(movie["averageRating"]), 1),
         "runtime":  movie.get("runtimeMinutes"),
         "tconst":   movie["tconst"],
-        # De TMDB (None si no disponible)
         "posterUrl": meta.get("posterUrl"),
         "overview":  meta.get("overview", ""),
         "tmdbId":    meta.get("tmdbId"),

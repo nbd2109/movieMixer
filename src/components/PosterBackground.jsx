@@ -30,7 +30,13 @@ export default function PosterBackground({ posterUrl, loading }) {
   const [displayed, setDisplayed] = useState(posterUrl)
 
   useEffect(() => {
-    if (!loading && posterUrl) setDisplayed(posterUrl)
+    if (!loading && posterUrl) {
+      const img = new Image()
+      img.src = posterUrl
+      img.onload  = () => setDisplayed(posterUrl)
+      img.onerror = () => {}   // mantener el fondo anterior si TMDB falla
+      return () => { img.onload = null; img.onerror = null }
+    }
   }, [posterUrl, loading])
 
   // Sin película todavía → fondo discreto
