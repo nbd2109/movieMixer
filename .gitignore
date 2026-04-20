@@ -7,6 +7,10 @@ dist
 # IMDb raw datasets (heavy — regenerar con setup_db.py)
 backend/title.basics.tsv.gz
 backend/title.ratings.tsv.gz
+backend/title.akas.tsv.gz
+
+# Logs
+backend/*.log
 
 # Base de datos local (regenerar con setup_db.py)
 backend/movies.db
