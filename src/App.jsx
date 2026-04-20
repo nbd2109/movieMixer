@@ -5,7 +5,6 @@ import MovieDisplay from './components/MovieDisplay'
 import MixerSlider from './components/MixerSlider'
 import YearRangeSlider from './components/YearRangeSlider'
 import SamplePads from './components/SamplePads'
-import TicketGenerator from './components/TicketGenerator'
 import TmdbAttribution from './components/TmdbAttribution'
 import WatchProviders from './components/WatchProviders'
 import { useMix } from './hooks/useMix'
@@ -268,9 +267,6 @@ export default function App() {
                   onChangeTo={set('yearTo')}
                 />
               </div>
-
-              {/* ── TICKET ── */}
-              <TicketGenerator movie={movie} sliders={sliders} />
 
               {/* ── TMDB Attribution (always visible in panel) ── */}
               <div className="flex flex-col items-center gap-1 pt-1">
