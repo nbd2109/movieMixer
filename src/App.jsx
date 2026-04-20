@@ -21,7 +21,7 @@ const INITIAL_SLIDERS = {
   tone:     40,
   cerebro:  50,
   yearFrom: 1920,
-  yearTo:   2024,
+  yearTo:   new Date().getFullYear(),
   runtime:  null,
   platform: null,
 }

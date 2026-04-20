@@ -43,7 +43,10 @@ export function useMix(sliders, remixKey = 0) {
   const [movie, setMovie]     = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState(null)
-  const mixCountRef = useRef(0)
+  const mixCountRef = useRef(() => {
+    const stored = parseInt(localStorage.getItem('cmx_mix_count') ?? '0', 10)
+    return isNaN(stored) ? 0 : stored
+  })()
 
   useEffect(() => {
     // Solo dispara cuando el usuario pulsa "Mezclar" — nunca al mover sliders
@@ -93,6 +96,7 @@ export function useMix(sliders, remixKey = 0) {
         const data = await res.json()
         setMovie(data)
         mixCountRef.current += 1
+        localStorage.setItem('cmx_mix_count', mixCountRef.current)
         track(Events.MIX_GENERATED, {
           mix_number:   mixCountRef.current,
           genres:       s.genres,

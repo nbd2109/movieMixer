@@ -67,6 +67,7 @@ IMDB_TO_TMDB_GENRE: dict[str, int] = {
     "Romance":     10749,
     "Sci-Fi":      878,
     "Thriller":    53,
+    "War":         10752,
     "Biography":   18,   # TMDB no tiene Biography; Drama es la categoría más cercana
 }
 
@@ -175,14 +176,11 @@ def interpolate_tone(tone: int) -> dict[str, float]:
 # Cerebro HIGH (70-100): 3.000–50.000 → ~10.000 pelís — autor/nicho
 
 app = FastAPI(title="CineMixer API", version="2.0.0")
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:4173")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:4173",
-    ],
-    allow_methods=["GET"],
+    allow_origins=[o.strip() for o in _raw_origins.split(",")],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
