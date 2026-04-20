@@ -58,6 +58,21 @@ def load_ratings(path: str) -> dict[str, tuple[float, int]]:
 
 
 def build_db(basics_path: str, ratings: dict, db_path: str) -> None:
+    # ── Bayesian Weighted Rating ──────────────────────────────────────────────
+    # WR = (V / (V + m)) × R  +  (m / (V + m)) × C
+    #   V = votos de la película
+    #   m = umbral de confianza (MIN_VOTES — mismo que el filtro de importación)
+    #   R = rating de la película
+    #   C = rating medio de todas las películas filtradas
+    #
+    # Efecto: una peli con 7.5★ y 200 votos → WR ≈ 6.86 (casi la media)
+    #         una peli con 7.5★ y 50k votos → WR ≈ 7.48 (casi su rating real)
+    # Cuantos más votos, más se puede confiar en la nota.
+    all_ratings = [r for r, _ in ratings.values()]
+    C = sum(all_ratings) / len(all_ratings)   # media real de la BD filtrada
+    m = float(MIN_VOTES)                       # constante de confianza
+    print(f"  Rating medio de la BD: {C:.3f}  |  Constante Bayesiana m={int(m)}")
+
     conn = sqlite3.connect(db_path)
 
     conn.executescript("""
@@ -68,7 +83,8 @@ def build_db(basics_path: str, ratings: dict, db_path: str) -> None:
             startYear     INTEGER NOT NULL,
             genres        TEXT    NOT NULL DEFAULT '',
             averageRating REAL    NOT NULL,
-            numVotes      INTEGER NOT NULL
+            numVotes      INTEGER NOT NULL,
+            vibe_score    REAL    NOT NULL DEFAULT 0
         );
     """)
 
@@ -97,24 +113,30 @@ def build_db(basics_path: str, ratings: dict, db_path: str) -> None:
             genres = "" if raw_genres == r"\N" else raw_genres
             avg_rating, num_votes = ratings[tconst]
 
-            batch.append((tconst, row["primaryTitle"], year, genres, avg_rating, num_votes))
+            V = float(num_votes)
+            R = avg_rating
+            vibe_score = round((V / (V + m)) * R + (m / (V + m)) * C, 4)
+
+            batch.append((tconst, row["primaryTitle"], year, genres, avg_rating, num_votes, vibe_score))
 
             if len(batch) >= 10_000:
-                conn.executemany("INSERT OR REPLACE INTO movies VALUES (?,?,?,?,?,?)", batch)
+                conn.executemany("INSERT OR REPLACE INTO movies VALUES (?,?,?,?,?,?,?)", batch)
                 inserted += len(batch)
                 batch = []
                 print(f"\r  Insertadas {inserted:,} películas…", end="", flush=True)
 
     if batch:
-        conn.executemany("INSERT OR REPLACE INTO movies VALUES (?,?,?,?,?,?)", batch)
+        conn.executemany("INSERT OR REPLACE INTO movies VALUES (?,?,?,?,?,?,?)", batch)
         inserted += len(batch)
 
     print("\n  Creando indices...")
     conn.executescript("""
-        CREATE INDEX IF NOT EXISTS idx_year   ON movies(startYear);
-        CREATE INDEX IF NOT EXISTS idx_rating ON movies(averageRating);
-        CREATE INDEX IF NOT EXISTS idx_votes  ON movies(numVotes);
+        CREATE INDEX IF NOT EXISTS idx_year       ON movies(startYear);
+        CREATE INDEX IF NOT EXISTS idx_rating     ON movies(averageRating);
+        CREATE INDEX IF NOT EXISTS idx_votes      ON movies(numVotes);
+        CREATE INDEX IF NOT EXISTS idx_vibe       ON movies(vibe_score);
         CREATE INDEX IF NOT EXISTS idx_year_votes ON movies(startYear, numVotes);
+        CREATE INDEX IF NOT EXISTS idx_year_vibe  ON movies(startYear, vibe_score);
     """)
 
     conn.commit()

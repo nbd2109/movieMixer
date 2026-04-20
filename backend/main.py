@@ -148,30 +148,75 @@ class VibeConstraints:
     """
     Restricciones resueltas listas para convertirse en SQL.
 
-    genre_groups   → Lista de grupos de géneros. La película debe coincidir
-                     con ≥1 género de CADA grupo (AND entre grupos, OR dentro).
-                     Ejemplo: [['Action','Sci-Fi'], ['Drama']] significa
-                     (Action OR Sci-Fi) AND (Drama).
-
-    exclude_genres → La película NO debe contener ninguno de estos géneros.
-                     Las exclusiones siempre tienen prioridad sobre los grupos.
-
-    priority_genres → Preferencia suave para el selector aleatorio (Cerebro alto).
-                      No es un filtro hard — solo sesga la elección 70/30.
+    genre_groups    → AND entre grupos, OR dentro de cada grupo.
+    exclude_genres  → Exclusiones hard. Siempre tienen prioridad.
+    priority_genres → Sesgo suave en pick_one() (70/30).
+    min_votes       → Umbral mínimo de votos (exponencial continua).
+    max_votes       → Techo de votos — excluye blockbusters en modo autor.
+    min_vibe_score  → Bayesian Weighted Rating mínimo (curva cóncava continua).
     """
     genre_groups:    list[list[str]] = field(default_factory=list)
     exclude_genres:  list[str]       = field(default_factory=list)
     priority_genres: list[str]       = field(default_factory=list)
-    min_votes:  int           = 50_000
-    max_votes:  Optional[int] = None
-    min_rating: float         = 6.5
-    year_from:  int           = 1990
-    year_to:    int           = 2024
+    min_votes:      int           = 15_000
+    max_votes:      Optional[int] = None
+    min_vibe_score: float         = 6.0
+    year_from:      int           = 1990
+    year_to:        int           = 2024
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. VIBE MATRIX — Traducción de sliders a restricciones
 # ══════════════════════════════════════════════════════════════════════════════
+
+def cerebro_to_constraints(cerebro: int, pop_factor: float) -> tuple[int, Optional[int], float]:
+    """
+    Convierte Cerebro (0–100) a (min_votes, max_votes, min_vibe_score)
+    usando curvas continuas moduladas por el factor de popularidad del Tono.
+
+    min_votes   — exponencial 200k → 1k escalada por pop_factor
+                  cada punto del slider produce un umbral distinto
+    max_votes   — techo exponencial que aparece suavemente a partir de cerebro=65
+                  excluye mega-blockbusters en modo autor
+    min_vibe    — curva cóncava 5.0 → 7.5 (sube rápido al principio)
+                  basada en el Bayesian Weighted Rating precomputado
+
+    Ejemplos con pop_factor=1.0 (géneros masivos como Comedy/Action):
+      cerebro=0   → min_votes=200k, max=None,   min_vibe=5.00
+      cerebro=25  → min_votes= 60k, max=None,   min_vibe=6.09
+      cerebro=50  → min_votes= 14k, max=None,   min_vibe=6.65
+      cerebro=75  → min_votes=  6k, max=  92k,  min_vibe=7.15
+      cerebro=100 → min_votes=  1k, max=  15k,  min_vibe=7.50
+
+    Con pop_factor=0.35 (géneros de nicho como Biography/History):
+      cerebro=0   → min_votes= 70k, max=None,   min_vibe=5.00
+      cerebro=50  → min_votes=  5k, max=None,   min_vibe=6.65
+      cerebro=100 → min_votes= 350, max= 5.2k,  min_vibe=7.50
+    """
+    cb = cerebro / 100.0
+
+    # ── Mínimo de votos: exponencial 200k → 1k ───────────────────────────────
+    # (1/200)^cb: a cb=0 → 1.0, a cb=1 → 0.005
+    base_min = 200_000 * (1 / 200) ** cb
+    min_votes = max(300, int(base_min * pop_factor))
+
+    # ── Mínimo vibe_score: curva cóncava 5.0 → 7.5 ───────────────────────────
+    # cb^0.6 sube más rápido al principio (más discriminante en el rango bajo)
+    min_vibe = 5.0 + 2.5 * (cb ** 0.6)
+
+    # ── Máximo de votos: techo exponencial suave a partir de cerebro=65 ───────
+    # Evita blockbusters en modo autor sin corte brusco
+    # cerebro=65 → ~300k*pop (sin techo real)
+    # cerebro=100 → ~15k*pop (excluye todo lo masivo)
+    if cerebro >= 65:
+        t = (cerebro - 65) / 35          # 0→1 en el rango 65–100
+        max_v = 300_000 * pop_factor * (15_000 / 300_000) ** t
+        max_votes: Optional[int] = max(3_000, int(max_v))
+    else:
+        max_votes = None
+
+    return min_votes, max_votes, min_vibe
+
 
 def translate_vibes(
     genres: list[str],
@@ -218,33 +263,13 @@ def translate_vibes(
     elif tone >= 90:
         c.exclude_genres += _TONE_EXCLUDE_HIGH
 
-    # ── COMBINACIÓN TONO × CEREBRO ────────────────────────────────────────────
-    # Cerebro fija la "exigencia" base, pero Tono la modera:
-    # géneros de nicho (Biography, History) tienen menos pelis con muchos votos,
-    # así que el umbral baja proporcionalmente para que el pool no se vacíe.
-    #
-    # pop = 1.0 → géneros masivos (Comedy, Action) → umbrales completos
-    # pop = 0.3 → géneros de nicho (Biography, History) → umbrales al 30%
-    #
+    # ── COMBINACIÓN TONO × CEREBRO — curvas continuas ────────────────────────
     pop = genre_popularity_factor(tone_weights)
+    c.min_votes, c.max_votes, c.min_vibe_score = cerebro_to_constraints(cerebro, pop)
 
-    if cerebro <= 35:
-        # Blockbuster: base 100k votos, mínimo 20k para géneros de nicho
-        c.min_votes  = max(20_000, int(100_000 * pop))
-        c.max_votes  = None
-        c.min_rating = 5.5
-
-    elif cerebro <= 69:
-        # Mainstream: base 15k votos, mínimo 2k para géneros de nicho
-        c.min_votes  = max(2_000, int(15_000 * pop))
-        c.max_votes  = None
-        c.min_rating = 6.5
-
-    else:
-        # Autor/nicho: base 3k votos, mínimo 500. Max votos también escala.
-        c.min_votes   = max(500, int(3_000 * pop))
-        c.max_votes   = max(10_000, int(50_000 * pop))
-        c.min_rating  = 7.0
+    # En modo autor (cerebro alto) se sesgua hacia géneros que tienden a tener
+    # alta nota con pocos votos — es donde viven las joyas ocultas.
+    if cerebro >= 70:
         c.priority_genres += ["Biography", "History", "Drama", "Documentary"]
 
     # ── RESOLUCIÓN DE COLISIONES ──────────────────────────────────────────────
@@ -295,9 +320,9 @@ def build_query(c: VibeConstraints) -> tuple[str, list]:
         clauses.append("numVotes <= ?")
         params.append(c.max_votes)
 
-    # Nota mínima
-    clauses.append("averageRating >= ?")
-    params.append(c.min_rating)
+    # Vibe score mínimo (Bayesian Weighted Rating)
+    clauses.append("vibe_score >= ?")
+    params.append(c.min_vibe_score)
 
     # Géneros excluidos (la película NO debe contener ninguno)
     for genre in c.exclude_genres:
@@ -340,9 +365,10 @@ def relax(c: VibeConstraints, step: int) -> Optional[VibeConstraints]:
 
     if step == 1:
         r.year_from = max(1900, r.year_from - 10)
-        r.year_to   = min(2025, r.year_to   + 10)
+        r.year_to   = min(2026, r.year_to   + 10)
     elif step == 2:
-        r.min_votes = max(100, r.min_votes // 2)
+        r.min_votes      = max(200, r.min_votes // 2)
+        r.min_vibe_score = max(5.0, r.min_vibe_score - 0.5)
     elif step == 3:
         r.genre_groups = []
     elif step == 4:
