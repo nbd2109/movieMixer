@@ -12,7 +12,7 @@ import { useMix }         from './hooks/useMix'
 import { useRetention }   from './hooks/useRetention'
 import { track, Events }  from './lib/track'
 
-const PANEL_H   = '50vh'
+const PANEL_H   = '40vh'
 const SPRING    = { type: 'spring', damping: 36, stiffness: 280 }
 
 const INITIAL_SLIDERS = {

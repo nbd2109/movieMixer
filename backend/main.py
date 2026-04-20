@@ -441,9 +441,10 @@ async def enrich_tmdb(title: str, year: int) -> dict:
         hit = results[0]
         poster = hit.get("poster_path")
         return {
-            "posterUrl": f"{TMDB_IMG}{poster}" if poster else None,
-            "overview":  hit.get("overview", ""),
-            "tmdbId":    hit.get("id"),
+            "posterUrl":         f"{TMDB_IMG}{poster}" if poster else None,
+            "overview":          hit.get("overview", ""),
+            "tmdbId":            hit.get("id"),
+            "original_language": hit.get("original_language"),
         }
     except Exception:
         return {}
@@ -518,11 +519,22 @@ async def mix(
                 raise HTTPException(500, "Sin resultados tras relajación máxima")
             current = relaxed
 
-    # 3. Elegir 1 película
-    movie = pick_one(rows, current.priority_genres)
+    # Lenguas de producción india — filtradas vía TMDB original_language
+    INDIAN_LANGUAGES = {"hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "gu", "ur"}
 
-    # 4. Enriquecer con TMDB (póster + sinopsis) — best-effort
-    meta = await enrich_tmdb(movie["primaryTitle"], movie["startYear"])
+    # 3+4. Elegir película y enriquecer; reintentar si TMDB la identifica como india
+    pool = list(rows)  # copia mutable del pool de candidatos
+    for _ in range(min(10, len(pool))):
+        movie = pick_one(pool, current.priority_genres)
+        meta  = await enrich_tmdb(movie["primaryTitle"], movie["startYear"])
+
+        if meta.get("original_language") in INDIAN_LANGUAGES:
+            # Descartar este candidato y probar otro del pool
+            pool = [r for r in pool if r["tconst"] != movie["tconst"]]
+            if not pool:
+                break
+            continue
+        break  # película válida encontrada
 
     genres = [g.strip() for g in movie["genres"].split(",") if g.strip()][:3]
 
