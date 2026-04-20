@@ -19,9 +19,16 @@ function formatRuntime(minutes) {
   return `${h}h ${m}min`
 }
 
+const APPROXIMATE_LABELS = [
+  'Lo más parecido que encontramos',
+  'No es exacto, pero va en esa onda',
+  'La mezcla más cercana disponible',
+]
+
 export default function MovieDisplay({ movie, loading }) {
   const overviewRef = useRef(null)
   const [phrase] = useState(() => IDLE_PHRASES[Math.floor(Math.random() * IDLE_PHRASES.length)])
+  const [approxLabel] = useState(() => APPROXIMATE_LABELS[Math.floor(Math.random() * APPROXIMATE_LABELS.length)])
 
   // Estado inicial — sin película todavía
   if (!movie && !loading) {
@@ -70,6 +77,18 @@ export default function MovieDisplay({ movie, loading }) {
           transition={{ duration: 0.45, ease: [0.25, 0.46, 0.45, 0.94] }}
           className="flex flex-col items-center gap-3 w-full"
         >
+          {/* Approximate match indicator */}
+          {movie?.genre_match === 'approximate' && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-[9px] tracking-[0.22em] uppercase"
+              style={{ color: 'rgba(232,160,32,0.55)' }}
+            >
+              {approxLabel}
+            </motion.p>
+          )}
+
           {/* Genre tags */}
           {movie?.genres?.length > 0 && (
             <div className="flex flex-wrap justify-center gap-1.5">

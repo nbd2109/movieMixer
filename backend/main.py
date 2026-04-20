@@ -710,35 +710,52 @@ async def mix(
     constraints.runtime_min = runtimeMin
     constraints.runtime_max = runtimeMax
 
-    # 2a. Primer intento: con géneros exactos (AND entre todos los seleccionados)
-    sql, params = build_query(constraints)
-    rows = await run_in_threadpool(run_query, sql, params)
     genre_match = "exact"
 
-    # 2b. Si no hay resultados con géneros exactos y el usuario eligió géneros,
-    #     devolver 404 — el frontend mostrará el mensaje de "sin coincidencia"
-    if not rows and genre_list:
-        raise HTTPException(
-            404,
-            detail={
-                "code": "no_genre_match",
-                "message": f"Sin películas con: {', '.join(genre_list)}",
-                "genres_requested": genre_list,
-            }
-        )
+    # 2. Búsqueda principal
+    sql, params = build_query(constraints)
+    rows = await run_in_threadpool(run_query, sql, params)
 
-    # 2c. Sin géneros seleccionados → fallback progresivo normal
-    step    = 0
-    current = constraints
-    while not rows:
-        sql, params = build_query(current)
-        rows = await run_in_threadpool(run_query, sql, params)
-        if not rows:
-            step   += 1
-            relaxed = relax(current, step)
-            if relaxed is None:
-                raise HTTPException(500, "Sin resultados tras relajación máxima")
-            current = relaxed
+    if not rows:
+        if genre_list:
+            # ── USUARIO ELIGIÓ GÉNEROS ────────────────────────────────────────
+            # Intento 2 — OR entre los géneros seleccionados (al menos uno):
+            # si pedían Mystery + War y no existe esa combo, buscar Mystery O War.
+            # Solo aplica con múltiples géneros; con uno solo ya devolvemos 404.
+            if len(genre_list) > 1:
+                broad = copy.deepcopy(constraints)
+                broad.genre_groups = [genre_list]   # un solo grupo OR
+                sql, params = build_query(broad)
+                rows = await run_in_threadpool(run_query, sql, params)
+                if rows:
+                    genre_match = "approximate"
+
+            if not rows:
+                raise HTTPException(
+                    404,
+                    detail={
+                        "code":             "no_genre_match",
+                        "message":          f"Sin películas con: {', '.join(genre_list)}",
+                        "genres_requested": genre_list,
+                    }
+                )
+        else:
+            # ── SIN GÉNEROS — fallback progresivo del Tono ───────────────────
+            # Cada paso relaja una restricción distinta y es transparente:
+            # los pasos 1-2 ajustan umbrales (resultado sigue siendo afín al Tono),
+            # a partir del paso 3 el género puede alejarse → se marca "approximate"
+            # para que el frontend lo comunique al usuario.
+            current = constraints
+            for step in range(1, 8):
+                relaxed = relax(current, step)
+                if relaxed is None:
+                    raise HTTPException(500, "Sin resultados tras relajación máxima")
+                current = relaxed
+                sql, params = build_query(current)
+                rows = await run_in_threadpool(run_query, sql, params)
+                if rows:
+                    genre_match = "approximate" if step >= 3 else "relaxed"
+                    break
 
     # 3+4. Elegir película y enriquecer; reintentar si TMDB la identifica como india
     pool = list(rows)
