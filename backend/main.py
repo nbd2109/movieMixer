@@ -58,6 +58,43 @@ _TONE_VALUES = [a[0] for a in TONE_ANCHORS]
 _TONE_EXCLUDE_LOW  = ['Horror', 'Crime', 'Thriller', 'Mystery']   # tone <= 10
 _TONE_EXCLUDE_HIGH = ['Comedy', 'Family', 'Animation', 'Romance'] # tone >= 90
 
+# ── POPULARIDAD POR GÉNERO ────────────────────────────────────────────────────
+# Qué tan masivo es un género en términos de votos (1.0 = máximo mainstream).
+# Usado para adaptar los umbrales de Cerebro cuando Tono apunta a géneros de nicho.
+_GENRE_POPULARITY: dict[str, float] = {
+    'Action':      1.00,
+    'Comedy':      1.00,
+    'Horror':      0.90,
+    'Thriller':    0.90,
+    'Sci-Fi':      0.85,
+    'Adventure':   0.85,
+    'Animation':   0.80,
+    'Family':      0.80,
+    'Romance':     0.75,
+    'Crime':       0.75,
+    'Drama':       0.70,
+    'Mystery':     0.65,
+    'Fantasy':     0.65,
+    'Biography':   0.35,
+    'History':     0.30,
+    'Documentary': 0.25,
+}
+
+
+def genre_popularity_factor(tone_weights: dict[str, float]) -> float:
+    """
+    Devuelve un factor 0.2–1.0 que refleja lo 'masivo' que es el mix de géneros
+    que pide Tono. Géneros de nicho (Biography, History) → factor bajo → Cerebro
+    afloja sus umbrales de votos para que sigan existiendo resultados.
+    """
+    if not tone_weights:
+        return 1.0
+    total = sum(tone_weights.values())
+    if total == 0:
+        return 1.0
+    weighted = sum(_GENRE_POPULARITY.get(g, 0.6) * w for g, w in tone_weights.items())
+    return max(0.20, weighted / total)
+
 
 def interpolate_tone(tone: int) -> dict[str, float]:
     """
@@ -165,47 +202,50 @@ def translate_vibes(
         c.genre_groups.append([genre])
 
     # ── SLIDER: TONO — interpolación continua entre 8 anclas ─────────────────
-    # Cada posición del slider tiene un mix único de afinidades por género.
-    # No hay dead zones: todo el rango 0–100 produce resultados distintos.
     tone_weights = interpolate_tone(tone)
 
-    # Géneros con peso alto → grupo OR requerido (la peli debe tener al menos uno)
+    # Géneros con peso alto → grupo OR requerido
     required = [g for g, w in tone_weights.items() if w >= 0.45]
     if required:
         c.genre_groups.append(required)
 
-    # Géneros con peso muy alto → sesgo en pick_one (sin ser requisito hard)
+    # Géneros con peso muy alto → sesgo en pick_one
     c.priority_genres += [g for g, w in tone_weights.items() if w >= 0.65]
 
-    # Exclusiones hard solo en los extremos absolutos del slider
+    # Exclusiones hard solo en extremos absolutos
     if tone <= 10:
         c.exclude_genres += _TONE_EXCLUDE_LOW
     elif tone >= 90:
         c.exclude_genres += _TONE_EXCLUDE_HIGH
 
-    # ── SLIDER: CEREBRO (calibrado con percentiles reales de la BD) ─────────
-    # Distribución real: P50=460 | P90=7.717 | P95=24.616 | P99=187.120 votos
+    # ── COMBINACIÓN TONO × CEREBRO ────────────────────────────────────────────
+    # Cerebro fija la "exigencia" base, pero Tono la modera:
+    # géneros de nicho (Biography, History) tienen menos pelis con muchos votos,
+    # así que el umbral baja proporcionalmente para que el pool no se vacíe.
+    #
+    # pop = 1.0 → géneros masivos (Comedy, Action) → umbrales completos
+    # pop = 0.3 → géneros de nicho (Biography, History) → umbrales al 30%
+    #
+    pop = genre_popularity_factor(tone_weights)
+
     if cerebro <= 35:
-        # Blockbuster: top ~1.7% de la BD por votos, nota permisiva
-        # >= 100k votos → ~2.500 peliculas (blockbusters garantizados)
-        c.min_votes  = 100_000
+        # Blockbuster: base 100k votos, mínimo 20k para géneros de nicho
+        c.min_votes  = max(20_000, int(100_000 * pop))
         c.max_votes  = None
         c.min_rating = 5.5
 
     elif cerebro <= 69:
-        # Mainstream de calidad: top ~5-6% por votos, nota decente
-        # >= 15k votos → ~8.000 peliculas conocidas pero no masivas
-        c.min_votes  = 15_000
+        # Mainstream: base 15k votos, mínimo 2k para géneros de nicho
+        c.min_votes  = max(2_000, int(15_000 * pop))
         c.max_votes  = None
         c.min_rating = 6.5
 
     else:
-        # Cine de autor/nicho: por encima de la media pero sin blockbusters
-        # 3.000–50.000 votos → ~10.000 peliculas (top 10-15%, excluye nivel Marvel)
-        c.min_votes     = 3_000
-        c.max_votes     = 50_000
-        c.min_rating    = 7.3
-        c.priority_genres = ["Biography", "History", "Drama", "Documentary"]
+        # Autor/nicho: base 3k votos, mínimo 500. Max votos también escala.
+        c.min_votes   = max(500, int(3_000 * pop))
+        c.max_votes   = max(10_000, int(50_000 * pop))
+        c.min_rating  = 7.0
+        c.priority_genres += ["Biography", "History", "Drama", "Documentary"]
 
     # ── RESOLUCIÓN DE COLISIONES ──────────────────────────────────────────────
     # Las exclusiones siempre tienen prioridad absoluta.
