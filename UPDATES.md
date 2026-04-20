@@ -26,15 +26,36 @@
 
 ---
 
+## Sesión 2026-04-20 (continuación)
+
+### Fase 1 completada
+
+#### 4. Géneros relacionales (`backend/migrate_genres.py` + `backend/main.py`)
+- **Problema:** Géneros almacenados como `"Action,Drama"` forzaban `LIKE '%,Action,%'` — full-table-scan en 144k filas sin índice.
+- **Solución:** `migrate_genres.py` crea tabla `movie_genre (tconst, genre_name)` con 111k filas + índices en `genre_name` y `tconst`. `build_query` reemplaza todos los LIKE por subqueries indexadas.
+- **Archivos:** `backend/migrate_genres.py` (nuevo), `backend/main.py` — función `build_query`.
+
+#### 5. Analytics endpoint (`backend/main.py` + `src/lib/track.js`)
+- **Problema:** `ENDPOINT = null` en track.js — todos los eventos se perdían.
+- **Solución:** Endpoint `POST /api/events` en FastAPI que persiste eventos en el log de uvicorn (listo para conectar a PostHog/Mixpanel sin tocar el frontend). `ENDPOINT = '/api/events'` en track.js.
+- **Archivos:** `backend/main.py` (endpoint nuevo al final), `src/lib/track.js`.
+
+#### 6. `run_in_threadpool` (`backend/main.py`)
+- **Problema:** `sqlite3` nativo en `async def` bloqueaba el event loop de Uvicorn — un request pesado paralizaba todos los demás.
+- **Solución:** Todos los `run_query(...)` en endpoints `async def` envueltos con `await run_in_threadpool(run_query, ...)`.
+- **Archivos:** `backend/main.py` — endpoints `mix` y `health`.
+
+---
+
 ## Estado del backlog (referencia PRD §8)
 
-### Fase 1 — Remediación Crítica
-- [x] Fix integración TMDB (`/find/{tconst}`)
-- [x] Fix Debounce Misfire (sliders no auto-disparan)
-- [x] Fix Poster Leak (preload + onError)
-- [ ] Refactorizar géneros a tabla relacional `movie_genre` (eliminar LIKE en SQLite)
-- [ ] Conectar analítica real (`ENDPOINT` en `track.js` apunta a `null`)
-- [ ] `run_in_threadpool` para sqlite3 en endpoints async (evitar bloqueo GIL)
+### Fase 1 — Remediación Crítica ✓ COMPLETA
+- [x] Fix integración TMDB (`/find/{tconst}`) — 2026-04-20
+- [x] Fix Debounce Misfire (sliders no auto-disparan) — 2026-04-20
+- [x] Fix Poster Leak (preload + onError) — 2026-04-20
+- [x] Géneros relacionales: tabla `movie_genre` + índices, `build_query` usa subqueries — 2026-04-20
+- [x] Analytics: `/api/events` en FastAPI, `ENDPOINT='/api/events'` en `track.js` — 2026-04-20
+- [x] `run_in_threadpool` en todos los `run_query` de endpoints async — 2026-04-20
 
 ### Fase 2 — SEO y Viralidad
 - [ ] Migración a Next.js App Router

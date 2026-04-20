@@ -20,7 +20,7 @@
  */
 
 // ── Configuración ─────────────────────────────────────────────────────────────
-const ENDPOINT = null  // Pon aquí tu endpoint cuando tengas analytics: '/api/events'
+const ENDPOINT = '/api/events'
 const MAX_SESSION_EVENTS = 200
 
 // ── Session ID ────────────────────────────────────────────────────────────────

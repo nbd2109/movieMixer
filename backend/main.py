@@ -12,6 +12,8 @@ Flujo por request:
 
 import bisect
 import copy
+import json
+import logging
 import os
 import random
 import sqlite3
@@ -20,8 +22,12 @@ from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+
+logger = logging.getLogger("cinemix")
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
@@ -337,16 +343,17 @@ def translate_vibes(
 def build_query(c: VibeConstraints) -> tuple[str, list]:
     """
     Construye un SELECT parametrizado desde VibeConstraints.
-    Usa ',' || genres || ',' para que el LIKE funcione en primer y último género.
+    Usa la tabla movie_genre (índice en genre_name) para evitar full-table-scan
+    con LIKE. Cada condición de género es una subquery indexada.
 
     Ejemplo con genre_groups=[['Action','Sci-Fi'], ['Drama']] y exclude=['Horror']:
         WHERE startYear BETWEEN ? AND ?
           AND numVotes >= ?
-          AND averageRating >= ?
-          AND (',' || genres || ',') NOT LIKE '%,Horror,%'
-          AND ((',' || genres || ',') LIKE '%,Action,%' OR (',' || genres || ',') LIKE '%,Sci-Fi,%')
-          AND ((',' || genres || ',') LIKE '%,Drama,%')
-        LIMIT 50
+          AND vibe_score >= ?
+          AND tconst NOT IN (SELECT tconst FROM movie_genre WHERE genre_name = 'Horror')
+          AND tconst IN (SELECT tconst FROM movie_genre WHERE genre_name IN ('Action','Sci-Fi'))
+          AND tconst IN (SELECT tconst FROM movie_genre WHERE genre_name IN ('Drama'))
+        LIMIT 100
     """
     clauses: list[str] = []
     params:  list      = []
@@ -368,16 +375,18 @@ def build_query(c: VibeConstraints) -> tuple[str, list]:
     clauses.append("vibe_score >= ?")
     params.append(c.min_vibe_score)
 
-    # Géneros excluidos (la película NO debe contener ninguno)
+    # Géneros excluidos — subquery indexada por genre_name
     for genre in c.exclude_genres:
-        clauses.append("(',' || genres || ',') NOT LIKE ?")
-        params.append(f"%,{genre},%")
+        clauses.append("tconst NOT IN (SELECT tconst FROM movie_genre WHERE genre_name = ?)")
+        params.append(genre)
 
-    # Grupos de géneros requeridos (AND entre grupos, OR dentro de cada grupo)
+    # Grupos de géneros requeridos — OR dentro del grupo, AND entre grupos
     for group in c.genre_groups:
-        sub = " OR ".join(["(',' || genres || ',') LIKE ?" for _ in group])
-        clauses.append(f"({sub})")
-        params += [f"%,{g},%" for g in group]
+        placeholders = ",".join(["?" for _ in group])
+        clauses.append(
+            f"tconst IN (SELECT tconst FROM movie_genre WHERE genre_name IN ({placeholders}))"
+        )
+        params += group
 
     # Duración (solo cuando el usuario activa el filtro)
     if c.runtime_min is not None:
@@ -684,7 +693,7 @@ async def mix(
 
     # 2a. Primer intento: con géneros exactos (AND entre todos los seleccionados)
     sql, params = build_query(constraints)
-    rows = run_query(sql, params)
+    rows = await run_in_threadpool(run_query, sql, params)
     genre_match = "exact"
 
     # 2b. Si no hay resultados con géneros exactos y el usuario eligió géneros,
@@ -704,7 +713,7 @@ async def mix(
     current = constraints
     while not rows:
         sql, params = build_query(current)
-        rows = run_query(sql, params)
+        rows = await run_in_threadpool(run_query, sql, params)
         if not rows:
             step   += 1
             relaxed = relax(current, step)
@@ -785,7 +794,22 @@ async def watch_providers(tmdb_id: int, country: str = Query("ES")):
 @app.get("/health")
 async def health():
     try:
-        rows = run_query("SELECT COUNT(*) as cnt FROM movies", [])
+        rows = await run_in_threadpool(run_query, "SELECT COUNT(*) as cnt FROM movies", [])
         return {"status": "ok", "movies_in_db": rows[0]["cnt"]}
     except HTTPException as e:
         return {"status": "error", "detail": e.detail}
+
+
+@app.post("/api/events")
+async def collect_event(request: Request):
+    """
+    Recibe eventos de telemetría desde track.js vía navigator.sendBeacon.
+    Por ahora los persiste en el log de uvicorn — listo para conectar a PostHog/Mixpanel.
+    """
+    try:
+        body = await request.body()
+        event = json.loads(body)
+        logger.info("EVENT %s %s", event.get("event", "unknown"), json.dumps(event.get("properties", {})))
+    except Exception:
+        pass
+    return Response(status_code=204)
