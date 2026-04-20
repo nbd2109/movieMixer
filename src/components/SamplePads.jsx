@@ -1,29 +1,28 @@
 import React from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { track, Events } from '../lib/track'
 
-// 4x4 grid — ordered by group so each row has visual coherence
 export const PADS = [
-  // Row 1 — Alta energía
-  { id: 'Action',      label: 'ACCION',    emoji: '💥', color: '#ef4444' },
-  { id: 'Adventure',   label: 'AVENTURA',  emoji: '🗺️',  color: '#f97316' },
-  { id: 'Thriller',    label: 'THRILLER',  emoji: '😱', color: '#dc2626' },
-  { id: 'Crime',       label: 'CRIMEN',    emoji: '🔫', color: '#b91c1c' },
-  // Row 2 — Emoción
-  { id: 'Drama',       label: 'DRAMA',     emoji: '🎭', color: '#3b82f6' },
-  { id: 'Romance',     label: 'ROMANCE',   emoji: '❤️',  color: '#ec4899' },
-  { id: 'Comedy',      label: 'COMEDIA',   emoji: '😂', color: '#22c55e' },
-  { id: 'Horror',      label: 'TERROR',    emoji: '👻', color: '#7c3aed' },
-  // Row 3 — Mente
-  { id: 'Sci-Fi',      label: 'SCI-FI',    emoji: '🚀', color: '#06b6d4' },
-  { id: 'Fantasy',     label: 'FANTASIA',  emoji: '🧙', color: '#8b5cf6' },
-  { id: 'Mystery',     label: 'MISTERIO',  emoji: '🔍', color: '#6366f1' },
-  { id: 'Documentary', label: 'DOCUMENTAL',emoji: '🎥', color: '#0891b2' },
-  // Row 4 — Especial
-  { id: 'Biography',   label: 'BIOGRAFIA', emoji: '📖', color: '#eab308' },
-  { id: 'History',     label: 'HISTORIA',  emoji: '🏛️',  color: '#d97706' },
-  { id: 'War',         label: 'GUERRA',    emoji: '⚔️',  color: '#78716c' },
-  { id: 'Animation',   label: 'ANIMACION', emoji: '🎨', color: '#10b981' },
+  // Row 1
+  { id: 'Action',      label: 'Acción',     color: '#c0392b' },
+  { id: 'Adventure',   label: 'Aventura',   color: '#d35400' },
+  { id: 'Thriller',    label: 'Thriller',   color: '#922b21' },
+  { id: 'Crime',       label: 'Crimen',     color: '#7b241c' },
+  // Row 2
+  { id: 'Drama',       label: 'Drama',      color: '#1a5276' },
+  { id: 'Romance',     label: 'Romance',    color: '#76448a' },
+  { id: 'Comedy',      label: 'Comedia',    color: '#1e8449' },
+  { id: 'Horror',      label: 'Terror',     color: '#512e5f' },
+  // Row 3
+  { id: 'Sci-Fi',      label: 'Sci-Fi',     color: '#0e6655' },
+  { id: 'Fantasy',     label: 'Fantasía',   color: '#4a235a' },
+  { id: 'Mystery',     label: 'Misterio',   color: '#154360' },
+  { id: 'Documentary', label: 'Doc.',       color: '#1a5276' },
+  // Row 4
+  { id: 'Biography',   label: 'Biografía',  color: '#7d6608' },
+  { id: 'History',     label: 'Historia',   color: '#784212' },
+  { id: 'War',         label: 'Guerra',     color: '#4d5656' },
+  { id: 'Animation',   label: 'Animación',  color: '#0e6251' },
 ]
 
 export default function SamplePads({ selected, onChange }) {
@@ -37,89 +36,63 @@ export default function SamplePads({ selected, onChange }) {
 
   return (
     <div className="flex flex-col gap-2 w-full">
-      {/* Section label */}
-      <div className="flex items-center justify-between px-1">
-        <span className="text-white/40 text-[10px] tracking-[0.25em] uppercase font-medium">
-          Samples
+      <div className="flex items-center justify-between">
+        <span
+          className="text-[10px] font-semibold tracking-[0.2em] uppercase select-none"
+          style={{ color: 'rgba(255,255,255,0.45)' }}
+        >
+          Géneros
         </span>
-        {selected.length > 0 && (
-          <motion.button
-            onClick={() => onChange([])}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-white/30 hover:text-white/60 text-[10px] tracking-widest uppercase transition-colors"
-          >
-            clear
-          </motion.button>
-        )}
+        <AnimatePresence>
+          {selected.length > 0 && (
+            <motion.button
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => onChange([])}
+              className="text-[10px] tracking-widest uppercase transition-colors"
+              style={{ color: 'rgba(255,255,255,0.25)' }}
+            >
+              limpiar
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* 4×4 pad grid */}
-      <div
-        className="grid gap-1.5 w-full"
-        style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}
-      >
-        {PADS.map((pad, i) => {
+      <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        {PADS.map((pad) => {
           const active = selected.includes(pad.id)
           return (
             <motion.button
               key={pad.id}
               onClick={() => toggle(pad.id)}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.15, delay: i * 0.015 }}
-              whileTap={{ scale: 0.88 }}
-              className="relative flex flex-col items-center justify-center rounded-lg py-2 px-1 select-none overflow-hidden transition-all duration-150"
+              whileTap={{ scale: 0.93 }}
+              className="relative flex items-center justify-center rounded-md py-2 select-none overflow-hidden"
               style={{
-                background: active
-                  ? `${pad.color}`
-                  : 'rgba(255,255,255,0.04)',
-                border: `1px solid ${active ? pad.color : 'rgba(255,255,255,0.08)'}`,
-                boxShadow: active
-                  ? `0 0 12px ${pad.color}66, 0 0 24px ${pad.color}33`
-                  : 'none',
+                background: active ? pad.color : 'rgba(255,255,255,0.04)',
+                border:     `1px solid ${active ? pad.color : 'rgba(255,255,255,0.07)'}`,
               }}
             >
-              {/* Active glow overlay */}
-              {active && (
-                <motion.div
-                  className="absolute inset-0 rounded-lg"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: [0.3, 0.1, 0.3] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                  style={{ background: `radial-gradient(circle, ${pad.color}66 0%, transparent 70%)` }}
-                />
-              )}
-
-              <span className="text-base leading-none mb-0.5 relative z-10">
-                {pad.emoji}
-              </span>
               <span
-                className="text-[8px] font-black tracking-widest leading-none relative z-10"
-                style={{ color: active ? '#000' : 'rgba(255,255,255,0.4)' }}
+                className="text-[9px] font-semibold tracking-wide relative z-10 leading-none"
+                style={{ color: active ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.35)' }}
               >
                 {pad.label}
               </span>
-
-              {/* Active indicator dot */}
-              {active && (
-                <div
-                  className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
-                  style={{ background: 'rgba(0,0,0,0.5)' }}
-                />
-              )}
             </motion.button>
           )
         })}
       </div>
 
-      {/* Status line — conversacional, sin jerga técnica */}
-      <p className="text-white/20 text-[10px] px-1 tracking-wide">
+      <p
+        className="text-[10px] tracking-wide"
+        style={{ color: 'rgba(255,255,255,0.2)' }}
+      >
         {selected.length === 0
-          ? 'Sorprendeme · sin filtro de genero'
+          ? 'Sin filtro de género'
           : selected.length === 1
-          ? `Solo ${PADS.find(p => p.id === selected[0])?.label.toLowerCase() ?? selected[0]}`
-          : `${selected.map(id => PADS.find(p => p.id === id)?.label.toLowerCase() ?? id).join(' + ')}`
+          ? PADS.find(p => p.id === selected[0])?.label
+          : selected.map(id => PADS.find(p => p.id === id)?.label ?? id).join(' · ')
         }
       </p>
     </div>

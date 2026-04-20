@@ -1,18 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 
-const POSTER_FILTERS = {
-  retro: 'sepia(0.65) brightness(0.88) contrast(1.1) saturate(0.8)',
-  dark:  'brightness(0.55) saturate(0.15) contrast(1.35)',
-}
-
-export default function PosterBackground({ posterUrl, loading, visualFx = [] }) {
-  const filterStyle = visualFx.includes('dark')
-    ? POSTER_FILTERS.dark
-    : visualFx.includes('retro')
-    ? POSTER_FILTERS.retro
-    : 'none'
-  // Keep previous URL while the new one loads for a smooth crossfade
+export default function PosterBackground({ posterUrl, loading }) {
   const [displayed, setDisplayed] = useState(posterUrl)
 
   useEffect(() => {
@@ -28,32 +17,23 @@ export default function PosterBackground({ posterUrl, loading, visualFx = [] }) 
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 1.2, ease: 'easeInOut' }}
+          transition={{ duration: 1.4, ease: 'easeInOut' }}
         >
-          {/* Poster image */}
-          <motion.div
+          <div
             className="absolute inset-0 bg-center bg-cover"
             style={{ backgroundImage: `url(${displayed})` }}
-            animate={{ filter: filterStyle }}
-            transition={{ duration: 0.6, ease: 'easeInOut' }}
           />
-          {/* Heavy vignette + dark overlay so text stays readable */}
-          <div className="absolute inset-0 bg-black/65" />
-          <div className="absolute inset-0"
+          {/* Dark overlay */}
+          <div className="absolute inset-0" style={{ background: 'rgba(8,8,16,0.72)' }} />
+          {/* Vignette */}
+          <div
+            className="absolute inset-0"
             style={{
-              background: 'radial-gradient(ellipse at center, transparent 20%, rgba(0,0,0,0.85) 100%)',
+              background: 'radial-gradient(ellipse at center, transparent 25%, rgba(8,8,16,0.88) 100%)',
             }}
           />
         </motion.div>
       </AnimatePresence>
-
-      {/* Subtle scanline texture */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px)',
-        }}
-      />
     </div>
   )
 }
