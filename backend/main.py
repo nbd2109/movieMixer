@@ -218,12 +218,48 @@ def cerebro_to_constraints(cerebro: int, pop_factor: float) -> tuple[int, Option
     return min_votes, max_votes, min_vibe
 
 
+def apply_fx(c: VibeConstraints, fx: list[str], user_genre_count: int) -> VibeConstraints:
+    """
+    Modifica VibeConstraints según los FX activos.
+    Se aplica DESPUÉS de translate_vibes para sobreescribir lo necesario.
+
+    wildcard  — elimina los grupos de tono (no los del usuario), abre el pool
+    cult      — fuerza hidden gems: max 20k votos, vibe alto
+    retro     — limita a películas anteriores al año 2000
+    dark      — requiere géneros oscuros, elimina sus exclusiones si las hay
+    """
+    if 'wildcard' in fx:
+        # Conserva solo los grupos del usuario (los primeros user_genre_count)
+        # y elimina los que añadió el tono — abre el pool dramáticamente
+        c.genre_groups = c.genre_groups[:user_genre_count]
+        c.min_vibe_score = max(5.5, c.min_vibe_score - 1.2)
+
+    if 'cult' in fx:
+        # Joyas ocultas: nota alta, audiencia pequeña
+        c.max_votes     = 20_000
+        c.min_vibe_score = max(c.min_vibe_score, 7.3)
+
+    if 'retro' in fx:
+        c.year_to   = min(c.year_to,   2000)
+        c.year_from = max(c.year_from, 1950)
+
+    if 'dark' in fx:
+        dark = ['Horror', 'Crime', 'Mystery', 'Thriller']
+        c.genre_groups.append(dark)
+        c.priority_genres += dark
+        # Si el tono claro había excluido géneros oscuros, los recuperamos
+        c.exclude_genres = [g for g in c.exclude_genres if g not in set(dark)]
+
+    return c
+
+
 def translate_vibes(
     genres: list[str],
     tone: int,
     cerebro: int,
     year_from: int,
     year_to: int,
+    fx: Optional[list[str]] = None,
 ) -> VibeConstraints:
     """
     Aplica la Vibe Matrix y resuelve colisiones.
@@ -271,6 +307,10 @@ def translate_vibes(
     # alta nota con pocos votos — es donde viven las joyas ocultas.
     if cerebro >= 70:
         c.priority_genres += ["Biography", "History", "Drama", "Documentary"]
+
+    # ── FX — modificaciones post-vibe ────────────────────────────────────────
+    if fx:
+        c = apply_fx(c, fx, user_genre_count=len(genres))
 
     # ── RESOLUCIÓN DE COLISIONES ──────────────────────────────────────────────
     # Las exclusiones siempre tienen prioridad absoluta.
@@ -468,12 +508,13 @@ async def mix(
     cerebro:  int = Query(50, ge=0, le=100),
     yearFrom: int = Query(1920, ge=1900, le=2026),
     yearTo:   int = Query(2024, ge=1900, le=2026),
+    fx:       str = Query(""),
 ):
-    # Parsear géneros (string vacío → lista vacía)
     genre_list = [g.strip() for g in genres.split(",") if g.strip()] if genres else []
+    fx_list    = [f.strip() for f in fx.split(",")    if f.strip()] if fx    else []
 
-    # 1. Traducir sliders → restricciones
-    constraints = translate_vibes(genre_list, tone, cerebro, yearFrom, yearTo)
+    # 1. Traducir sliders → restricciones (con FX integrados)
+    constraints = translate_vibes(genre_list, tone, cerebro, yearFrom, yearTo, fx=fx_list)
 
     # 2a. Primer intento: con géneros exactos (AND entre todos los seleccionados)
     sql, params = build_query(constraints)

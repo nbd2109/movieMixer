@@ -7,6 +7,7 @@ import YearRangeSlider from './components/YearRangeSlider'
 import SamplePads from './components/SamplePads'
 import TmdbAttribution from './components/TmdbAttribution'
 import WatchProviders from './components/WatchProviders'
+import FxUnit from './components/FxUnit'
 import { useMix } from './hooks/useMix'
 import { useRetention } from './hooks/useRetention'
 import { track, Events } from './lib/track'
@@ -25,8 +26,9 @@ export default function App() {
   const [panelOpen, setPanelOpen] = useState(true)
   const [remixKey, setRemixKey] = useState(0)
   const [remixSpinning, setRemixSpinning] = useState(false)
+  const [activeFx, setActiveFx] = useState([])
 
-  const { movie, loading, error } = useMix(sliders, remixKey)
+  const { movie, loading, error } = useMix(sliders, remixKey, activeFx)
 
   function handleRemix() {
     setRemixKey((k) => k + 1)
@@ -50,7 +52,7 @@ export default function App() {
     <div className="relative w-full h-screen overflow-hidden bg-black select-none">
 
       {/* ── Layer 0: Poster background ── */}
-      <PosterBackground posterUrl={movie?.posterUrl} loading={loading} />
+      <PosterBackground posterUrl={movie?.posterUrl} loading={loading} visualFx={activeFx} />
 
       {/* ── Layer 10: Movie info ── */}
       <div
@@ -242,6 +244,14 @@ export default function App() {
                   onChange={set('cerebro')}
                   color="#3b82f6"
                 />
+              </div>
+
+              {/* ── FX UNIT ── */}
+              <div
+                className="rounded-2xl p-3"
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+              >
+                <FxUnit active={activeFx} onChange={setActiveFx} />
               </div>
 
               {/* ── SAMPLE PADS ── */}

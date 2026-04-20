@@ -37,8 +37,9 @@ const FALLBACKS = [
   },
 ]
 
-export function useMix(sliders, remixKey = 0) {
+export function useMix(sliders, remixKey = 0, activeFx = []) {
   const debouncedSliders = useDebounce(sliders, 350)
+  const fxParam = activeFx.join(',')
   const [movie, setMovie] = useState(FALLBACKS[0])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -57,6 +58,7 @@ export function useMix(sliders, remixKey = 0) {
           cerebro:  debouncedSliders.cerebro,
           yearFrom: debouncedSliders.yearFrom,
           yearTo:   debouncedSliders.yearTo,
+          fx:       fxParam,
         })
         const res = await fetch(`/api/movies/mix?${params}`, {
           signal: controller.signal,
@@ -96,8 +98,8 @@ export function useMix(sliders, remixKey = 0) {
 
     fetchMix()
     return () => controller.abort()
-  // remixKey is intentionally not debounced — clicking REMIX fires immediately
-  }, [debouncedSliders, remixKey])
+  // remixKey and fxParam are not debounced — fire immediately on change
+  }, [debouncedSliders, remixKey, fxParam])
 
   return { movie, loading, error }
 }

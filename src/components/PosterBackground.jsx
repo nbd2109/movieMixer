@@ -1,7 +1,17 @@
 import React, { useState, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 
-export default function PosterBackground({ posterUrl, loading }) {
+const POSTER_FILTERS = {
+  retro: 'sepia(0.65) brightness(0.88) contrast(1.1) saturate(0.8)',
+  dark:  'brightness(0.55) saturate(0.15) contrast(1.35)',
+}
+
+export default function PosterBackground({ posterUrl, loading, visualFx = [] }) {
+  const filterStyle = visualFx.includes('dark')
+    ? POSTER_FILTERS.dark
+    : visualFx.includes('retro')
+    ? POSTER_FILTERS.retro
+    : 'none'
   // Keep previous URL while the new one loads for a smooth crossfade
   const [displayed, setDisplayed] = useState(posterUrl)
 
@@ -21,9 +31,11 @@ export default function PosterBackground({ posterUrl, loading }) {
           transition={{ duration: 1.2, ease: 'easeInOut' }}
         >
           {/* Poster image */}
-          <div
+          <motion.div
             className="absolute inset-0 bg-center bg-cover"
             style={{ backgroundImage: `url(${displayed})` }}
+            animate={{ filter: filterStyle }}
+            transition={{ duration: 0.6, ease: 'easeInOut' }}
           />
           {/* Heavy vignette + dark overlay so text stays readable */}
           <div className="absolute inset-0 bg-black/65" />
