@@ -26,9 +26,37 @@ const INITIAL_SLIDERS = {
   platform: null,
 }
 
+function parseUrlSliders(defaults) {
+  const p = new URLSearchParams(window.location.search)
+  const KEYS = ['tone', 'cerebro', 'genres', 'yearFrom', 'yearTo', 'runtime', 'platform']
+  if (!KEYS.some(k => p.has(k))) return null
+  return {
+    ...defaults,
+    ...(p.has('tone')     ? { tone:     Number(p.get('tone'))                                 } : {}),
+    ...(p.has('cerebro')  ? { cerebro:  Number(p.get('cerebro'))                              } : {}),
+    ...(p.has('genres')   ? { genres:   p.get('genres') ? p.get('genres').split(',') : []     } : {}),
+    ...(p.has('yearFrom') ? { yearFrom: Number(p.get('yearFrom'))                             } : {}),
+    ...(p.has('yearTo')   ? { yearTo:   Number(p.get('yearTo'))                               } : {}),
+    ...(p.has('runtime')  ? { runtime:  p.get('runtime')                                      } : {}),
+    ...(p.has('platform') ? { platform: p.get('platform')                                     } : {}),
+  }
+}
+
+function buildShareUrl(s) {
+  const p = new URLSearchParams()
+  p.set('tone',     s.tone)
+  p.set('cerebro',  s.cerebro)
+  if (s.genres.length) p.set('genres', s.genres.join(','))
+  p.set('yearFrom', s.yearFrom)
+  p.set('yearTo',   s.yearTo)
+  if (s.runtime)  p.set('runtime',  s.runtime)
+  if (s.platform) p.set('platform', s.platform)
+  return `${window.location.pathname}?${p}`
+}
+
 export default function App() {
   const { getInitialSliders, saveSliders, welcomeMessage } = useRetention(INITIAL_SLIDERS)
-  const [sliders, setSliders]     = useState(() => getInitialSliders())
+  const [sliders, setSliders]     = useState(() => parseUrlSliders(INITIAL_SLIDERS) ?? getInitialSliders())
   const [panelOpen, setPanelOpen] = useState(true)
   const [remixKey, setRemixKey]   = useState(0)
   const [spinning, setSpinning]   = useState(false)
@@ -47,6 +75,7 @@ export default function App() {
   }
 
   function handleRemix() {
+    window.history.replaceState(null, '', buildShareUrl(sliders))
     setRemixKey(k => k + 1)
     setSpinning(true)
     setTimeout(() => setSpinning(false), 550)

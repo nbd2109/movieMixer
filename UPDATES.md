@@ -126,6 +126,29 @@ Los 4 bugs críticos aplicados y pusheados (ver tabla arriba).
 
 ---
 
+## Sesión 2026-04-21
+
+### Sprint 1 — Viralidad
+
+#### URL de mezcla compartible (`src/App.jsx`)
+- **Problema:** Compartir CineMix con alguien llevaba a la app con sliders en default, sin la configuración que generó la película.
+- **Solución:**
+  - `parseUrlSliders()`: al montar, lee `?tone=&cerebro=&genres=&yearFrom=&yearTo=&runtime=&platform=` y los aplica como estado inicial. Prioridad: URL > localStorage > `INITIAL_SLIDERS`.
+  - `buildShareUrl(s)`: serializa los sliders actuales en query params.
+  - `handleRemix()`: llama a `window.history.replaceState(null, '', buildShareUrl(sliders))` antes de disparar el fetch — la URL siempre refleja la mezcla activa.
+- **Archivos:** `src/App.jsx`
+
+#### Botón Compartir (`src/components/MovieDisplay.jsx`)
+- **Problema:** `share_clicked` definido en `track.js` pero sin llamar — la funcionalidad no existía.
+- **Solución:**
+  - Botón sutil (↗ Compartir) visible solo cuando hay película, debajo de la fila de metadatos.
+  - En móvil (`navigator.share` disponible): Web Share API nativa → abre directamente WhatsApp/iMessage/etc.
+  - En desktop: `navigator.clipboard.writeText(url)` + feedback visual "✓ Copiado" durante 2s.
+  - Llama a `track(Events.SHARE_CLICKED, { title, platform: 'web_share' | 'clipboard' })`.
+- **Archivos:** `src/components/MovieDisplay.jsx`
+
+---
+
 ## Estado del backlog
 
 ### Sprint 0 — Bugs críticos ✓ COMPLETO
@@ -138,9 +161,9 @@ Los 4 bugs críticos aplicados y pusheados (ver tabla arriba).
 - [x] Ruta de plataforma usa Vibe Matrix completa (Tono, Cerebro, exclusiones) — 2026-04-20
 
 ### Sprint 1 — Viralidad
-- [ ] Botón Compartir (Web Share API + clipboard fallback)
-- [ ] URL de mezcla compartible (`?tone=70&cerebro=30&genres=Thriller,Crime`)
-- [ ] Open Graph tags dinámicos por película
+- [x] Botón Compartir (Web Share API + clipboard fallback) — 2026-04-21
+- [x] URL de mezcla compartible (`?tone=70&cerebro=30&genres=Thriller,Crime`) — 2026-04-21
+- [ ] Open Graph tags dinámicos por película (requiere Next.js para SSR real)
 
 ### Sprint 2 — Producción real
 - [ ] README + `.env.example`

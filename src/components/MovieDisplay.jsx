@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { track, Events } from '../lib/track'
 
 const IDLE_PHRASES = [
   'El proyector está encendido.\nFalta la película.',
@@ -29,6 +30,25 @@ export default function MovieDisplay({ movie, loading }) {
   const overviewRef = useRef(null)
   const [phrase] = useState(() => IDLE_PHRASES[Math.floor(Math.random() * IDLE_PHRASES.length)])
   const [approxLabel] = useState(() => APPROXIMATE_LABELS[Math.floor(Math.random() * APPROXIMATE_LABELS.length)])
+  const [copied, setCopied] = useState(false)
+
+  function handleShare() {
+    const url = window.location.href
+    if (navigator.share) {
+      navigator.share({
+        title: `${movie.title} · CineMix`,
+        text:  `CineMix me encontró esta: ${movie.title} (${movie.year}). ¿Qué te encuentra a ti?`,
+        url,
+      }).catch(() => {})
+      track(Events.SHARE_CLICKED, { title: movie.title, platform: 'web_share' })
+    } else {
+      navigator.clipboard.writeText(url).then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      })
+      track(Events.SHARE_CLICKED, { title: movie.title, platform: 'clipboard' })
+    }
+  }
 
   // Estado inicial — sin película todavía
   if (!movie && !loading) {
@@ -137,6 +157,26 @@ export default function MovieDisplay({ movie, loading }) {
               </>
             )}
           </div>
+
+          {/* Share button */}
+          {movie && !loading && (
+            <button
+              onClick={handleShare}
+              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1 rounded-full transition-all"
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                border:     '1px solid rgba(255,255,255,0.1)',
+                color:      copied ? '#e8a020' : 'rgba(255,255,255,0.35)',
+                fontSize:   10,
+                letterSpacing: '0.12em',
+              }}
+              onMouseEnter={e => { if (!copied) e.currentTarget.style.color = 'rgba(255,255,255,0.65)' }}
+              onMouseLeave={e => { if (!copied) e.currentTarget.style.color = 'rgba(255,255,255,0.35)' }}
+            >
+              <span style={{ fontSize: 11 }}>{copied ? '✓' : '↗'}</span>
+              <span className="uppercase tracking-widest">{copied ? 'Copiado' : 'Compartir'}</span>
+            </button>
+          )}
 
           {/* Synopsis + TMDB link when truncated */}
           {movie?.overview && (
