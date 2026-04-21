@@ -826,6 +826,19 @@ async def mix(
     constraints.min_avg_rating = minRating
     constraints.max_avg_rating = maxRating
 
+    # ── Nota del usuario tiene prioridad sobre vibe_score ────────────────────
+    # vibe_score >= 6.65 (cerebro=50) actúa como suelo implícito que haría
+    # inútil cualquier rango de nota por debajo de 6.5.
+    # Si el usuario fija explícitamente un rango, bajamos min_vibe_score para
+    # que su elección sea la restricción de calidad efectiva.
+    if maxRating is not None:
+        # El techo del usuario no puede ser anulado por el suelo de vibe.
+        # Bajamos min_vibe_score para que las películas en el rango sean accesibles.
+        constraints.min_vibe_score = min(constraints.min_vibe_score, max(4.0, maxRating - 0.5))
+    if minRating > 5.0:
+        # Alinear vibe_score con la nota mínima elegida.
+        constraints.min_vibe_score = min(constraints.min_vibe_score, minRating - 0.1)
+
     genre_match = "exact"
     relaxed_by: Optional[str] = None
 
