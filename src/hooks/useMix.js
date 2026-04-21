@@ -123,5 +123,10 @@ export function useMix(sliders, remixKey = 0) {
     return () => controller.abort()
   }, [remixKey])
 
-  return { movie, loading, error }
+  function restoreMovie(m) {
+    setMovie(m)
+    setError(null)
+  }
+
+  return { movie, loading, error, restoreMovie }
 }

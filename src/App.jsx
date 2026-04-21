@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import PosterBackground   from './components/PosterBackground'
 import MovieDisplay       from './components/MovieDisplay'
@@ -9,6 +9,7 @@ import TmdbAttribution    from './components/TmdbAttribution'
 import WatchProviders     from './components/WatchProviders'
 import RuntimeFilter      from './components/RuntimeFilter'
 import PlatformFilter     from './components/PlatformFilter'
+import Setlist            from './components/Setlist'
 import { useMix }         from './hooks/useMix'
 import { useRetention }   from './hooks/useRetention'
 import { track, Events }  from './lib/track'
@@ -61,7 +62,22 @@ export default function App() {
   const [remixKey, setRemixKey]   = useState(0)
   const [spinning, setSpinning]   = useState(false)
 
-  const { movie, loading, error } = useMix(sliders, remixKey)
+  const { movie, loading, error, restoreMovie } = useMix(sliders, remixKey)
+
+  // Setlist — últimas 5 películas de la sesión (sessionStorage)
+  const [setlist, setSetlist] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem('cmx_setlist') ?? '[]') } catch { return [] }
+  })
+
+  useEffect(() => {
+    if (!movie) return
+    setSetlist(prev => {
+      const deduped = prev.filter(m => m.title !== movie.title)
+      const next = [movie, ...deduped].slice(0, 5)
+      sessionStorage.setItem('cmx_setlist', JSON.stringify(next))
+      return next
+    })
+  }, [movie])
 
   function set(key) {
     return (val) => {
@@ -101,7 +117,7 @@ export default function App() {
         </div>
 
         {/* REMIX al fondo del mismo contenedor para que el centrado sea real */}
-        <div className="pb-8 flex justify-center w-full flex-shrink-0">
+        <div className="pb-8 flex flex-col items-center gap-3 w-full flex-shrink-0">
           <motion.button
             onClick={handleRemix}
             whileHover={{ scale: 1.05 }}
@@ -125,6 +141,11 @@ export default function App() {
             </motion.span>
             Mezclar
           </motion.button>
+          <Setlist
+            items={setlist}
+            currentTitle={movie?.title}
+            onRestore={restoreMovie}
+          />
         </div>
       </motion.div>
 
