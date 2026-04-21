@@ -6,7 +6,6 @@ puertos (MovieRepository, MovieEnricher, PlatformDiscovery). No contiene
 lógica de negocio propia ni conoce FastAPI, SQLite ni TMDB directamente.
 """
 
-import copy
 import logging
 from typing import Optional
 
@@ -16,7 +15,6 @@ from fastapi.concurrency import run_in_threadpool
 from domain.constants import INDIAN_LANGUAGES, PLATFORM_IDS
 from domain.ports.movie_enricher import MovieEnricher, PlatformDiscovery
 from domain.ports.movie_repository import MovieRepository
-from domain.relaxation import STEP_REASON, relax
 from domain.selection import pick_one
 from domain.vibe_matrix import translate_vibes
 
@@ -164,40 +162,22 @@ class MixService:
         if min_rating > 5.0:
             constraints.min_vibe_score = min(constraints.min_vibe_score, min_rating - 0.1)
 
-        genre_match = "exact"
-        relaxed_by: Optional[str] = None
-
-        # Búsqueda principal
-        current = constraints
-        rows    = await run_in_threadpool(self._repo.find_movies, current)
+        # Búsqueda — sin fallback, sin relajación. Si no hay resultados, es no hay.
+        rows = await run_in_threadpool(self._repo.find_movies, constraints)
 
         if not rows:
-            # Intento con múltiples géneros: OR en vez de AND
-            if genres and len(genres) > 1:
-                broad              = copy.deepcopy(constraints)
-                broad.genre_groups = [genres]
-                rows               = await run_in_threadpool(self._repo.find_movies, broad)
-                if rows:
-                    genre_match = "approximate"
-                    relaxed_by  = "genres"
-
-        if not rows:
-            # Fallback progresivo — relaja restricciones paso a paso
-            for step in range(1, 9):
-                relaxed = relax(current, step)
-                if relaxed is None:
-                    raise HTTPException(500, "Sin resultados tras relajación máxima")
-                current = relaxed
-                rows    = await run_in_threadpool(self._repo.find_movies, current)
-                if rows:
-                    relaxed_by  = STEP_REASON[step]
-                    genre_match = "approximate" if step >= 3 else "relaxed"
-                    break
+            raise HTTPException(
+                404,
+                detail={
+                    "code":    "no_results",
+                    "message": "No hay películas con esos ajustes exactos.",
+                },
+            )
 
         # Elegir película y enriquecer; reintentar si TMDB la identifica como india
         pool = list(rows)
         for _ in range(min(10, len(pool))):
-            movie = pick_one(pool, current.priority_genres)
+            movie = pick_one(pool, constraints.priority_genres)
             meta  = await self._enricher.enrich(movie["tconst"])
 
             if meta.get("original_language") in INDIAN_LANGUAGES:
@@ -210,15 +190,13 @@ class MixService:
         movie_genres = [g.strip() for g in movie["genres"].split(",") if g.strip()][:3]
 
         return {
-            "title":       movie["primaryTitle"],
-            "year":        movie["startYear"],
-            "genres":      movie_genres,
-            "rating":      round(float(movie["averageRating"]), 1),
-            "runtime":     movie.get("runtimeMinutes"),
-            "tconst":      movie["tconst"],
-            "posterUrl":   meta.get("posterUrl"),
-            "overview":    meta.get("overview", ""),
-            "tmdbId":      meta.get("tmdbId"),
-            "genre_match": genre_match,
-            "relaxed_by":  relaxed_by,
+            "title":    movie["primaryTitle"],
+            "year":     movie["startYear"],
+            "genres":   movie_genres,
+            "rating":   round(float(movie["averageRating"]), 1),
+            "runtime":  movie.get("runtimeMinutes"),
+            "tconst":   movie["tconst"],
+            "posterUrl": meta.get("posterUrl"),
+            "overview":  meta.get("overview", ""),
+            "tmdbId":    meta.get("tmdbId"),
         }

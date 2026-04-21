@@ -230,9 +230,9 @@ export default function App() {
             Backend offline · modo demo
           </motion.div>
         )}
-        {error?.code === 'no_platform_match' && (
+        {(error?.code === 'no_platform_match' || error?.code === 'no_results') && (
           <motion.div
-            key="no-platform"
+            key="no-results"
             initial={{ opacity: 0, y: -12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -12 }}
@@ -241,7 +241,9 @@ export default function App() {
           >
             <p className="text-red-400 text-[10px] font-semibold tracking-widest uppercase">Sin resultados</p>
             <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
-              No hay películas en esta plataforma con esos ajustes
+              {error.code === 'no_platform_match'
+                ? 'No hay películas en esta plataforma con esos ajustes'
+                : 'No hay películas con esos ajustes exactos. Prueba a cambiar algún filtro.'}
             </p>
           </motion.div>
         )}
