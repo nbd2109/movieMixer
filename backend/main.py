@@ -778,7 +778,8 @@ async def mix(
     genre_match = "exact"
 
     # 2. Búsqueda principal
-    sql, params = build_query(constraints)
+    current = constraints   # puede ser reemplazado por relax() en el fallback
+    sql, params = build_query(current)
     rows = await run_in_threadpool(run_query, sql, params)
 
     if not rows:
@@ -810,7 +811,6 @@ async def mix(
             # los pasos 1-2 ajustan umbrales (resultado sigue siendo afín al Tono),
             # a partir del paso 3 el género puede alejarse → se marca "approximate"
             # para que el frontend lo comunique al usuario.
-            current = constraints
             for step in range(1, 8):
                 relaxed = relax(current, step)
                 if relaxed is None:
