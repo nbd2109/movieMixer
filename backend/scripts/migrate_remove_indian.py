@@ -18,9 +18,10 @@ import sqlite3
 
 csv.field_size_limit(10_000_000)
 
-HERE    = os.path.dirname(__file__)
-DB_PATH = os.path.join(HERE, "movies.db")
-AKAS_GZ = os.path.join(HERE, "title.akas.tsv.gz")
+SCRIPTS_DIR = os.path.dirname(__file__)
+BACKEND_DIR = os.path.dirname(SCRIPTS_DIR)
+DB_PATH     = os.path.join(BACKEND_DIR, "movies.db")
+AKAS_GZ     = os.path.join(BACKEND_DIR, "data", "title.akas.tsv.gz")
 
 INDIAN_LANGUAGES = {
     "hi",   # Hindi

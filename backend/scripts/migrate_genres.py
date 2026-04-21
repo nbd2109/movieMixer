@@ -11,7 +11,7 @@ Seguro de relanzar: usa CREATE TABLE IF NOT EXISTS + INSERT OR IGNORE.
 import os
 import sqlite3
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "movies.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "movies.db")
 
 
 def migrate():

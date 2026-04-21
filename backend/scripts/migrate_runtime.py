@@ -11,9 +11,10 @@ import gzip
 import os
 import sqlite3
 
-HERE       = os.path.dirname(__file__)
-DB_PATH    = os.path.join(HERE, "movies.db")
-BASICS_GZ  = os.path.join(HERE, "title.basics.tsv.gz")
+SCRIPTS_DIR = os.path.dirname(__file__)
+BACKEND_DIR = os.path.dirname(SCRIPTS_DIR)
+DB_PATH     = os.path.join(BACKEND_DIR, "movies.db")
+BASICS_GZ   = os.path.join(BACKEND_DIR, "data", "title.basics.tsv.gz")
 
 
 def main():

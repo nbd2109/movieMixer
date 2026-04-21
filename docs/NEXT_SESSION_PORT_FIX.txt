@@ -1,0 +1,28 @@
+TAREA AL INICIO DE SESIÓN: revertir puerto del proxy de Vite
+
+En una sesión anterior había un proceso zombie ocupando el puerto 8001.
+Como parche temporal se cambió vite.config.js para que el proxy apuntara al 8003.
+
+VERIFICAR PRIMERO:
+  1. Abre una terminal y ejecuta:
+       netstat -ano | findstr :8001
+     Si no aparece nada (o el PID ya no existe), el zombie ha desaparecido.
+
+  2. Si el puerto 8001 está libre, edita vite.config.js:
+     Cambia:   target: 'http://localhost:8003'
+     Por:      target: 'http://localhost:8001'
+
+  3. Arranca el backend en el puerto correcto:
+       cd backend
+       uvicorn main:app --reload --port 8001
+
+  4. Arranca el frontend:
+       npm run dev
+
+Si el puerto 8001 sigue ocupado por el zombie:
+  - Busca el PID con:  netstat -ano | findstr :8001
+  - Mátalo con:        taskkill /F /PID <PID>
+  - Si taskkill falla, reinicia el PC y el zombie desaparece solo.
+  - Luego repite los pasos 2-4.
+
+Una vez verificado que todo funciona con 8001, elimina este archivo.

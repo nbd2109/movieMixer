@@ -40,12 +40,12 @@ Ejecuta los scripts en este orden exacto desde la carpeta `backend/`:
 
 ```bash
 cd backend
-python setup_db.py          # Descarga datos IMDb y crea movies.db (~5 min)
-python migrate_genres.py    # Crea tabla movie_genre con índices
-python migrate_runtime.py   # Añade columna runtimeMinutes
+python scripts/setup_db.py          # Descarga datos IMDb y crea movies.db (~5 min)
+python scripts/migrate_genres.py    # Crea tabla movie_genre con índices
+python scripts/migrate_runtime.py   # Añade columna runtimeMinutes
 ```
 
-> `setup_db.py` descarga `title.basics.tsv.gz` (~1GB) y `title.ratings.tsv.gz` de IMDb automáticamente.
+> `setup_db.py` descarga `title.basics.tsv.gz` (~1GB) y `title.ratings.tsv.gz` de IMDb automáticamente en `backend/data/`.
 > `movies.db` resultante pesa ~300MB y está en `.gitignore`.
 
 ### 3. Levantar el backend
@@ -108,7 +108,7 @@ El algoritmo central (**Vibe Matrix**) traduce los sliders Tono y Cerebro en res
 
 | Script | Cuándo ejecutarlo |
 |--------|------------------|
-| `migrate_remove_indian.py` | Si quieres filtrar producciones del subcontinente indio. Requiere descargar `title.akas.tsv.gz` (~2GB) adicional de IMDb. |
+| `scripts/migrate_remove_indian.py` | Si quieres filtrar producciones del subcontinente indio. Requiere descargar `title.akas.tsv.gz` (~2GB) adicional de IMDb en `backend/data/`. |
 
 ---
 
@@ -118,4 +118,4 @@ Para desplegar en producción:
 
 1. Añade el dominio de tu frontend a `ALLOWED_ORIGINS` en el `.env` del servidor
 2. El frontend necesita un proxy real (nginx, Caddy) que redirija `/api` al backend
-3. Ver `UPDATES.md` para el roadmap de Redis, rate limiting y migración a Next.js
+3. Ver `docs/UPDATES.md` para el roadmap de Redis, rate limiting y migración a Next.js

@@ -15,10 +15,11 @@ import sqlite3
 import urllib.request
 
 # ── Config ────────────────────────────────────────────────────────────────────
-HERE         = os.path.dirname(__file__)
-DB_PATH      = os.path.join(HERE, "movies.db")
-BASICS_GZ    = os.path.join(HERE, "title.basics.tsv.gz")
-RATINGS_GZ   = os.path.join(HERE, "title.ratings.tsv.gz")
+SCRIPTS_DIR  = os.path.dirname(__file__)
+BACKEND_DIR  = os.path.dirname(SCRIPTS_DIR)           # backend/scripts/../ = backend/
+DB_PATH      = os.path.join(BACKEND_DIR, "movies.db")
+BASICS_GZ    = os.path.join(BACKEND_DIR, "data", "title.basics.tsv.gz")
+RATINGS_GZ   = os.path.join(BACKEND_DIR, "data", "title.ratings.tsv.gz")
 BASICS_URL   = "https://datasets.imdbws.com/title.basics.tsv.gz"
 RATINGS_URL  = "https://datasets.imdbws.com/title.ratings.tsv.gz"
 MIN_VOTES    = 1_000  # Filtro en importación — solo películas con audiencia real
