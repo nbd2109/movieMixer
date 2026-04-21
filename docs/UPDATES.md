@@ -170,8 +170,84 @@ Los 4 bugs críticos aplicados y pusheados (ver tabla arriba).
 - `README.md`: setup completo (requisitos, orden de scripts de migración, variables de entorno, arquitectura).
 - `.env.example`: `TMDB_API_KEY` y `ALLOWED_ORIGINS`.
 
-### ⚠️ Deuda técnica pendiente — inicio de siguiente sesión
-- `vite.config.js` apunta a puerto `8003` (parche temporal — zombie en `8001`). Revertir a `8001` tras reiniciar el PC.
+---
+
+## Sesión 2026-04-21 (continuación) — Arquitectura Hexagonal + Perfección de Sliders
+
+### Refactorización a Arquitectura Hexagonal/DDD (`backend/`)
+
+**Problema:** `backend/main.py` era un monolito de 815 líneas que mezclaba dominio, infraestructura y routing.
+
+**Solución:** Refactorización completa en capas:
+```
+backend/
+  domain/        ← lógica pura (constants, entities, vibe_matrix, selection, ports/)
+  infrastructure/ ← SQLiteMovieRepository, TmdbClient
+  application/   ← MixService (caso de uso)
+  routers/       ← movies.py, health.py, events.py (delgados)
+  main.py        ← Composition Root (<50 líneas)
+  scripts/       ← setup_db.py, migrate_*.py
+  tests/         ← test suite completo
+```
+
+Puertos en `domain/ports/`: `MovieRepository`, `MovieEnricher`, `PlatformDiscovery`.
+
+### Filosofía "no mentir" — eliminación del sistema de relajación
+
+**Cambio de filosofía:** "si no hay resultados, decirlo honestamente" reemplaza el sistema de fallback silencioso. Los usuarios vuelven si confían en los resultados; no si reciben algo distinto a lo pedido.
+
+- `MixService._mix_sqlite`: si no hay filas → HTTP 404 `{"code": "no_results"}` directo. Sin relajación.
+- `MixService._mix_platform`: si TMDB no devuelve nada → HTTP 404 `{"code": "no_platform_match"}`.
+- `domain/relaxation.py`: existe pero ya no se importa (dead code, a eliminar en futura limpieza).
+- Frontend: `App.jsx` muestra badge rojo "Sin resultados" para ambos códigos de error.
+- Frontend: eliminados `genre_match`, `relaxed_by` de la respuesta — ya no se usan.
+
+### Perfección de sliders en ruta de plataforma (TMDB Discover)
+
+**Problema:** TMDB Discover ignoraba runtime, nota ceiling, cerebro y sort strategy.
+
+**Fixes en `infrastructure/tmdb_client.py`:**
+- `VOTE_COUNT_FACTOR = 15` (TMDB tiene ~15x menos votos que IMDb)
+- `RATING_OFFSET = 0.3` (TMDB puntúa ~0.3 más bajo)
+- `_PAGE_STRATEGY`: cerebro<40 → popularity.desc pág 1-8; 40-64 → 1-15; ≥65 → vote_average.desc 1-25
+- `vote_average.gte/lte`, `with_runtime.gte/lte` ahora se pasan correctamente
+- Pool siempre incluye page_start + 2 páginas aleatorias del rango
+
+**Fixes en `application/mix_service.py`:**
+- `_mix_platform` recibe `runtime_min/max` (antes ignorado)
+- `max_avg_rating` y `cerebro` se pasan a `discover_by_platform`
+- Interacción nota↔vibe_score aplicada igual que en ruta SQLite
+
+**Fix en `domain/ports/movie_enricher.py`:**
+- Puerto `PlatformDiscovery.discover_by_platform` extendido con `max_avg_rating`, `runtime_min`, `runtime_max`, `cerebro`
+
+### Organización de archivos
+- Scripts movidos a `backend/scripts/` con `BACKEND_DIR` corregido para paths
+- `.gitignore` actualizado para `backend/data/` y `backend/logs/`
+- `docs/NEXT_SESSION_PORT_FIX.txt`: nota de que `vite.config.js` apunta a 8003 (parche temporal)
+
+### Suite de tests
+
+**`backend/tests/test_vibe_matrix.py`** (15 tests, dominio puro):
+- tone=0→Comedy en priority_genres, tone=100→Horror excluido en excludes
+- cerebro=0 → min_votes≥100k, cerebro=100 → min_votes≤2000
+- War no excluido en tone=50, resolución de colisión nota↔vibe_score
+
+**`backend/tests/test_mix_service_platform.py`** (8 tests, stubs hexagonales):
+- Verifica que TODOS los sliders llegan a PlatformDiscovery sin backend real ni TMDB
+- runtime_max, runtime_min, max_avg_rating, min_avg_rating, cerebro, year range, genres, tone excludes
+
+**`backend/tests/test_exhaustive.py`** (6289 tests, 0 fallos):
+- Todos los 101 valores de Tono y Cerebro
+- 441 combinaciones Tono×Cerebro (cada 5 pasos)
+- Los 17 géneros individualmente + 136 pares de géneros
+- Todos los rangos de año válidos
+- 30 combinaciones nota×vibe_score
+- Estrategia de páginas TMDB para todos los 101 cerebros
+- Calibración vote_count para todos los 101 cerebros
+- Mapping género→TMDB ID, constantes de plataforma
+- 484 invariantes globales
+- **Resultado: 6284 passed, 5 skipped, 0 failed**
 
 ---
 
@@ -188,10 +264,24 @@ Los 4 bugs críticos aplicados y pusheados (ver tabla arriba).
 - [x] Panel Historial — 10 películas FIFO, localStorage, con poster/sinopsis/TMDB/JustWatch
 - [x] README + `.env.example`
 
-### Sprint 2 — Producción real (en curso)
-- [x] Rate limiting (`slowapi`, 20/60 req/min) — 2026-04-21
+### Sprint 1.6 — Slider Nota ✓ COMPLETO (2026-04-21)
+- [x] Dual-range RatingRangeSlider (5.0 → >8)
+- [x] Fix colisión nota↔vibe_score
+
+### Sprint 1.7 — Hexagonal + No-mentir ✓ COMPLETO (2026-04-21)
+- [x] Refactorización a Arquitectura Hexagonal/DDD
+- [x] Eliminación del sistema de relajación silenciosa
+- [x] Perfección de todos los sliders en ruta de plataforma
+- [x] Suite exhaustiva de tests (6289 tests, 0 fallos)
+
+### ⚠️ Deuda técnica pendiente — inicio de siguiente sesión
+- `vite.config.js` apunta a puerto `8003` (parche temporal — zombie en `8001`)
+  → revertir a `8001` tras reiniciar el PC o matar el proceso zombie
+- `domain/relaxation.py` es dead code — eliminar en futura sesión de limpieza
+
+### Sprint 2 — Rendimiento y estabilidad (siguiente)
 - [ ] Connection pool SQLite con `threading.local()`
-- [ ] Redis (Upstash) para cachear TMDB responses (TTL 7 días `enrich_tmdb`, TTL 48h providers)
+- [ ] Redis (Upstash) para cachear TMDB responses (TTL 7 días `enrich`, TTL 48h providers)
 
 ### Sprint 3 — SEO (requiere Next.js)
 - [ ] Migración frontend a Next.js App Router
@@ -204,24 +294,12 @@ Los 4 bugs críticos aplicados y pusheados (ver tabla arriba).
 
 ---
 
-## Deuda técnica conocida (no bloqueante hoy)
-
-| Problema | Impacto | Dónde |
-|----------|---------|-------|
-| Sin connection pool SQLite — abre/cierra conexión en cada request | Performance bajo carga | `backend/main.py` `run_query()` |
-| `mixCountRef` useRef(0) — se reinicia en cada recarga | Calidad de analytics | `src/hooks/useMix.js` |
-| Magic strings de color (`#e8a020`, `#080810`) en 6+ archivos | Mantenibilidad | `src/components/` |
-| Sin tests de ningún tipo | Riesgo en refactors | Todo el backend |
-| Sin README — proyecto inoperable para colaboradores nuevos | Onboarding | raíz del repo |
-
----
-
 ## Stack actual
 
 | Capa | Tecnología |
 |------|-----------|
 | Frontend | React 18 + Vite + Tailwind + Framer Motion (SPA, no SSR) |
-| Backend | FastAPI + Python + SQLite (144k películas IMDb, Bayesian WR) |
+| Backend | FastAPI + Python + SQLite (144k películas IMDb, Bayesian WR) — Arquitectura Hexagonal |
 | Metadatos | TMDB API (póster + sinopsis + watch providers vía JustWatch) |
 | Persistencia usuario | localStorage (`cmx_*` keys, sin login por diseño) |
 | Analytics | `track.js` → `navigator.sendBeacon` → `POST /api/events` (funcional) |
