@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { track, Events } from '../lib/track'
 
-function ratingToParam(val) {
-  if (val >= 97) return 8.0
-  return parseFloat((5.0 + (val / 96) * 3.0).toFixed(1))
+// Convierte valor interno (50-81) a float para el backend
+function ratingIntToFloat(v) {
+  if (v >= 81) return null   // >8 → sin techo
+  return parseFloat((v / 10).toFixed(1))
 }
 
 const FALLBACKS = [
@@ -73,13 +74,17 @@ export function useMix(sliders, remixKey = 0) {
         }
         const runtimeParams = RUNTIME_BOUNDS[s.runtime] ?? {}
 
+        const minRating = ratingIntToFloat(s.ratingFrom ?? 50)
+        const maxRating = ratingIntToFloat(s.ratingTo   ?? 81)
+
         const params = new URLSearchParams({
-          genres:    s.genres.join(','),
-          tone:      s.tone,
-          cerebro:   s.cerebro,
-          minRating: ratingToParam(s.minRating ?? 0),
-          yearFrom:  s.yearFrom,
-          yearTo:    s.yearTo,
+          genres:   s.genres.join(','),
+          tone:     s.tone,
+          cerebro:  s.cerebro,
+          yearFrom: s.yearFrom,
+          yearTo:   s.yearTo,
+          ...(minRating !== null ? { minRating } : {}),
+          ...(maxRating !== null ? { maxRating } : {}),
           ...runtimeParams,
           ...(s.platform ? { platform: s.platform } : {}),
         })

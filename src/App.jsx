@@ -7,8 +7,9 @@ import YearRangeSlider    from './components/YearRangeSlider'
 import SamplePads         from './components/SamplePads'
 import TmdbAttribution    from './components/TmdbAttribution'
 import WatchProviders     from './components/WatchProviders'
-import RuntimeFilter      from './components/RuntimeFilter'
-import PlatformFilter     from './components/PlatformFilter'
+import RuntimeFilter        from './components/RuntimeFilter'
+import PlatformFilter       from './components/PlatformFilter'
+import RatingRangeSlider    from './components/RatingRangeSlider'
 import Setlist            from './components/Setlist'
 import HistorialPanel     from './components/HistorialPanel'
 import { useHistory }     from './hooks/useHistory'
@@ -20,21 +21,15 @@ const PANEL_W = '40%'
 const SPRING  = { type: 'spring', damping: 36, stiffness: 280 }
 
 const INITIAL_SLIDERS = {
-  genres:    [],
-  tone:      40,
-  cerebro:   50,
-  minRating: 0,
-  yearFrom:  1920,
-  yearTo:    new Date().getFullYear(),
-  runtime:   null,
-  platform:  null,
-}
-
-// Convierte posición del slider (0-100) a nota mínima legible
-function ratingDisplay(val) {
-  if (val >= 97) return '>8'
-  const r = 5.0 + (val / 96) * 3.0
-  return r.toFixed(1)
+  genres:      [],
+  tone:        40,
+  cerebro:     50,
+  ratingFrom:  50,   // 5.0
+  ratingTo:    81,   // >8
+  yearFrom:    1920,
+  yearTo:      new Date().getFullYear(),
+  runtime:     null,
+  platform:    null,
 }
 
 function parseUrlSliders(defaults) {
@@ -43,23 +38,27 @@ function parseUrlSliders(defaults) {
   if (!KEYS.some(k => p.has(k))) return null
   return {
     ...defaults,
-    ...(p.has('tone')     ? { tone:     Number(p.get('tone'))                                 } : {}),
-    ...(p.has('cerebro')  ? { cerebro:  Number(p.get('cerebro'))                              } : {}),
-    ...(p.has('genres')   ? { genres:   p.get('genres') ? p.get('genres').split(',') : []     } : {}),
-    ...(p.has('yearFrom') ? { yearFrom: Number(p.get('yearFrom'))                             } : {}),
-    ...(p.has('yearTo')   ? { yearTo:   Number(p.get('yearTo'))                               } : {}),
-    ...(p.has('runtime')  ? { runtime:  p.get('runtime')                                      } : {}),
-    ...(p.has('platform') ? { platform: p.get('platform')                                     } : {}),
+    ...(p.has('tone')        ? { tone:        Number(p.get('tone'))                              } : {}),
+    ...(p.has('cerebro')     ? { cerebro:     Number(p.get('cerebro'))                         } : {}),
+    ...(p.has('genres')      ? { genres:      p.get('genres') ? p.get('genres').split(',') : [] } : {}),
+    ...(p.has('ratingFrom')  ? { ratingFrom:  Number(p.get('ratingFrom'))                      } : {}),
+    ...(p.has('ratingTo')    ? { ratingTo:    Number(p.get('ratingTo'))                        } : {}),
+    ...(p.has('yearFrom')    ? { yearFrom:    Number(p.get('yearFrom'))                        } : {}),
+    ...(p.has('yearTo')      ? { yearTo:      Number(p.get('yearTo'))                          } : {}),
+    ...(p.has('runtime')     ? { runtime:     p.get('runtime')                                 } : {}),
+    ...(p.has('platform')    ? { platform:    p.get('platform')                                } : {}),
   }
 }
 
 function buildShareUrl(s) {
   const p = new URLSearchParams()
-  p.set('tone',     s.tone)
-  p.set('cerebro',  s.cerebro)
+  p.set('tone',       s.tone)
+  p.set('cerebro',    s.cerebro)
   if (s.genres.length) p.set('genres', s.genres.join(','))
-  p.set('yearFrom', s.yearFrom)
-  p.set('yearTo',   s.yearTo)
+  p.set('ratingFrom', s.ratingFrom)
+  p.set('ratingTo',   s.ratingTo)
+  p.set('yearFrom',   s.yearFrom)
+  p.set('yearTo',     s.yearTo)
   if (s.runtime)  p.set('runtime',  s.runtime)
   if (s.platform) p.set('platform', s.platform)
   return `${window.location.pathname}?${p}`
@@ -332,15 +331,6 @@ export default function App() {
                   onChange={set('cerebro')}
                   color="#5b9bd5"
                 />
-                <MixerSlider
-                  label="Nota"
-                  leftLabel="Al menos, será entretenida."
-                  rightLabel="puede cambiar tu vida..."
-                  value={sliders.minRating}
-                  onChange={set('minRating')}
-                  color="#e8a020"
-                  formatValue={ratingDisplay}
-                />
               </section>
 
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
@@ -362,6 +352,18 @@ export default function App() {
                   yearTo={sliders.yearTo}
                   onChangeFrom={set('yearFrom')}
                   onChangeTo={set('yearTo')}
+                />
+              </section>
+
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
+
+              {/* Nota */}
+              <section>
+                <RatingRangeSlider
+                  ratingFrom={sliders.ratingFrom}
+                  ratingTo={sliders.ratingTo}
+                  onChangeFrom={set('ratingFrom')}
+                  onChangeTo={set('ratingTo')}
                 />
               </section>
 
