@@ -10,6 +10,8 @@ import WatchProviders     from './components/WatchProviders'
 import RuntimeFilter      from './components/RuntimeFilter'
 import PlatformFilter     from './components/PlatformFilter'
 import Setlist            from './components/Setlist'
+import HistorialPanel     from './components/HistorialPanel'
+import { useHistory }     from './hooks/useHistory'
 import { useMix }         from './hooks/useMix'
 import { useRetention }   from './hooks/useRetention'
 import { track, Events }  from './lib/track'
@@ -58,9 +60,12 @@ function buildShareUrl(s) {
 export default function App() {
   const { getInitialSliders, saveSliders, welcomeMessage } = useRetention(INITIAL_SLIDERS)
   const [sliders, setSliders]     = useState(() => parseUrlSliders(INITIAL_SLIDERS) ?? getInitialSliders())
-  const [panelOpen, setPanelOpen] = useState(true)
-  const [remixKey, setRemixKey]   = useState(0)
-  const [spinning, setSpinning]   = useState(false)
+  const [panelOpen, setPanelOpen]       = useState(true)
+  const [historialOpen, setHistorialOpen] = useState(false)
+  const [remixKey, setRemixKey]         = useState(0)
+  const [spinning, setSpinning]         = useState(false)
+
+  const { history, addToHistory, clearHistory } = useHistory()
 
   const { movie, loading, error, restoreMovie } = useMix(sliders, remixKey)
 
@@ -71,6 +76,7 @@ export default function App() {
 
   useEffect(() => {
     if (!movie) return
+    addToHistory(movie)
     setSetlist(prev => {
       const deduped = prev.filter(m => m.title !== movie.title)
       const next = [movie, ...deduped].slice(0, 5)
@@ -149,15 +155,40 @@ export default function App() {
         </div>
       </motion.div>
 
-      {/* ── Logo ── */}
-      <div className="absolute top-5 left-5 z-20 pointer-events-none">
+      {/* ── Logo + Historial ── */}
+      <div className="absolute top-5 left-5 z-50 flex items-center gap-4 pointer-events-auto">
         <span
           className="font-black text-base tracking-tight"
           style={{ color: 'rgba(255,255,255,0.9)', letterSpacing: '-0.01em' }}
         >
           CINE<span style={{ color: '#e8a020' }}>MIX</span>
         </span>
+        <button
+          onClick={() => setHistorialOpen(o => !o)}
+          className="flex items-center gap-1.5 text-[9px] tracking-[0.2em] uppercase transition-colors"
+          style={{ color: historialOpen ? '#e8a020' : 'rgba(255,255,255,0.3)' }}
+          onMouseEnter={e => { if (!historialOpen) e.currentTarget.style.color = 'rgba(255,255,255,0.65)' }}
+          onMouseLeave={e => { if (!historialOpen) e.currentTarget.style.color = 'rgba(255,255,255,0.3)' }}
+        >
+          Historial
+          {history.length > 0 && (
+            <span
+              className="rounded-full px-1.5 py-0.5 text-[8px]"
+              style={{ background: 'rgba(232,160,32,0.15)', color: '#e8a020' }}
+            >
+              {history.length}
+            </span>
+          )}
+        </button>
       </div>
+
+      {/* ── Panel Historial ── */}
+      <HistorialPanel
+        open={historialOpen}
+        onClose={() => setHistorialOpen(false)}
+        history={history}
+        onClear={clearHistory}
+      />
 
       {/* ── Toggle del panel — se mueve con el seam ── */}
       <motion.button
