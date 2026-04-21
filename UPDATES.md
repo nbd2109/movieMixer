@@ -147,29 +147,51 @@ Los 4 bugs críticos aplicados y pusheados (ver tabla arriba).
   - Llama a `track(Events.SHARE_CLICKED, { title, platform: 'web_share' | 'clipboard' })`.
 - **Archivos:** `src/components/MovieDisplay.jsx`
 
+### Fix: UnboundLocalError `current` (`backend/main.py`)
+- **Problema:** `current` solo se definía dentro del `else` del fallback, pero se usaba incondicionalmente en `pick_one(pool, current.priority_genres)` → 500 en el camino feliz (query con resultados).
+- **Solución:** `current = constraints` movido al scope principal antes del `if not rows:`.
+- **Archivos:** `backend/main.py` línea ~781
+
+### Panel Historial (`src/components/HistorialPanel.jsx`, `src/hooks/useHistory.js`)
+- **Cola FIFO de 10 películas** persistente en `localStorage['cmx_history']`, deduplicada por título.
+- **Botón "Historial"** con badge contador junto al logo CINEMIX (arriba izquierda).
+- Panel slide-in desde la izquierda con tarjetas que incluyen: poster, título, año, rating, duración, géneros, sinopsis (3 líneas), enlace TMDB, logos de plataformas streaming + link JustWatch, fecha.
+- Botón "Limpiar" para vaciar el historial.
+- **Archivos:** `src/hooks/useHistory.js` (nuevo), `src/components/HistorialPanel.jsx` (nuevo), `src/App.jsx`
+
+### Rate limiting (`backend/main.py`, `backend/requirements.txt`)
+- `slowapi==0.1.9` instalado.
+- `/api/movies/mix`: **20 req/min** por IP
+- `/api/movies/{id}/watch-providers`: **60 req/min** por IP
+- `/api/events`: **60 req/min** por IP
+- Respuesta 429: `{"error": "too_many_requests", "retry_after": 60}`
+
+### README + `.env.example`
+- `README.md`: setup completo (requisitos, orden de scripts de migración, variables de entorno, arquitectura).
+- `.env.example`: `TMDB_API_KEY` y `ALLOWED_ORIGINS`.
+
+### ⚠️ Deuda técnica pendiente — inicio de siguiente sesión
+- `vite.config.js` apunta a puerto `8003` (parche temporal — zombie en `8001`). Revertir a `8001` tras reiniciar el PC.
+
 ---
 
 ## Estado del backlog
 
-### Sprint 0 — Bugs críticos ✓ COMPLETO
-- [x] CORS desde ENV (`ALLOWED_ORIGINS`) — 2026-04-20
-- [x] `"War": 10752` en `IMDB_TO_TMDB_GENRE` — 2026-04-20
-- [x] `yearTo: new Date().getFullYear()` — 2026-04-20
-- [x] `mixCountRef` persistente en localStorage — 2026-04-20
-- [x] Géneros usuario vs Tono: el Tono ya no sobreescribe la selección del usuario — 2026-04-20
-- [x] Fallback transparente: "algo parecido" cuando resultado no es exacto — 2026-04-20
-- [x] Ruta de plataforma usa Vibe Matrix completa (Tono, Cerebro, exclusiones) — 2026-04-20
+### Sprint 0 — Bugs críticos ✓ COMPLETO (2026-04-20)
 
-### Sprint 1 — Viralidad
-- [x] Botón Compartir (Web Share API + clipboard fallback) — 2026-04-21
-- [x] URL de mezcla compartible (`?tone=70&cerebro=30&genres=Thriller,Crime`) — 2026-04-21
+### Sprint 1 — Viralidad ✓ COMPLETO (2026-04-21)
+- [x] Botón Compartir (Web Share API + clipboard fallback)
+- [x] URL de mezcla compartible (`?tone=70&cerebro=30&genres=Thriller,Crime`)
 - [ ] Open Graph tags dinámicos por película (requiere Next.js para SSR real)
 
-### Sprint 2 — Producción real
-- [ ] README + `.env.example`
-- [ ] Rate limiting (`slowapi`, 20 req/min en `/api/movies/mix`)
-- [ ] Redis (Upstash) para cachear TMDB responses (TTL 7 días `enrich_tmdb`, TTL 48h providers)
+### Sprint 1.5 — UX ✓ COMPLETO (2026-04-21)
+- [x] Panel Historial — 10 películas FIFO, localStorage, con poster/sinopsis/TMDB/JustWatch
+- [x] README + `.env.example`
+
+### Sprint 2 — Producción real (en curso)
+- [x] Rate limiting (`slowapi`, 20/60 req/min) — 2026-04-21
 - [ ] Connection pool SQLite con `threading.local()`
+- [ ] Redis (Upstash) para cachear TMDB responses (TTL 7 días `enrich_tmdb`, TTL 48h providers)
 
 ### Sprint 3 — SEO (requiere Next.js)
 - [ ] Migración frontend a Next.js App Router

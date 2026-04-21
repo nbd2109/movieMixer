@@ -128,16 +128,17 @@ CINEMIX_LAST_VISIT       → timestamp última visita
 - [x] **Tracking layer** — `track.js` → `POST /api/events` (funcional, listo para PostHog)
 - [x] **Filtro de duración** — corto/normal/largo (`RuntimeFilter.jsx` + `migrate_runtime.py`)
 - [x] **Filtro de plataforma** — Netflix/HBO/Prime/Disney+/Movistar (`PlatformFilter.jsx`)
-- [ ] **URLs de mezcla compartibles** — slug legible + OG image
-- [ ] **Botón Compartir** — Web Share API en móvil, clipboard en desktop
+- [x] **URLs de mezcla compartibles** — `?tone=&cerebro=&genres=&yearFrom=&yearTo=` — 2026-04-21
+- [x] **Botón Compartir** — Web Share API en móvil, clipboard en desktop — 2026-04-21
 
 ### P2 — Mejora la experiencia
-- [ ] **Historial / setlist** — últimas 5 películas de la sesión (sessionStorage)
+- [x] **Panel Historial** — últimas 10 películas (localStorage, FIFO), con poster/sinopsis/TMDB/JustWatch — 2026-04-21
 - [ ] **Migración a Next.js** — SSR para SEO programático
 - [ ] **Responsive mobile** — bottom sheet en lugar de panel lateral
 
 ### P3 — Pulido
 - [ ] **Presets de mezcla** — "Noche de terror", "Domingo tranquilo", etc.
+- [x] **Rate limiting** — `slowapi` 20/60 req/min, protege cuota TMDB — 2026-04-21
 - [ ] **Redis caché TMDB** — evita throttling a partir de 50 usuarios concurrentes
 
 ---
