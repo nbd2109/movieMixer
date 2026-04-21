@@ -226,6 +226,7 @@ class VibeConstraints:
     min_votes:       int           = 15_000
     max_votes:       Optional[int] = None
     min_vibe_score:  float         = 6.0
+    min_avg_rating:  float         = 5.0
     year_from:       int           = 1990
     year_to:         int           = 2024
     runtime_min:     Optional[int] = None
@@ -401,6 +402,11 @@ def build_query(c: VibeConstraints) -> tuple[str, list]:
     # Vibe score mínimo (Bayesian Weighted Rating)
     clauses.append("vibe_score >= ?")
     params.append(c.min_vibe_score)
+
+    # Nota mínima elegida por el usuario (averageRating IMDb)
+    if c.min_avg_rating > 5.0:
+        clauses.append("averageRating >= ?")
+        params.append(c.min_avg_rating)
 
     # Géneros excluidos — subquery indexada por genre_name
     for genre in c.exclude_genres:
@@ -740,6 +746,7 @@ async def mix(
     genres:     str            = Query(""),
     tone:       int            = Query(50, ge=0, le=100),
     cerebro:    int            = Query(50, ge=0, le=100),
+    minRating:  float          = Query(5.0, ge=5.0, le=10.0),
     yearFrom:   int            = Query(1920, ge=1900, le=2030),
     yearTo:     int            = Query(2026, ge=1900, le=2030),
     runtimeMin: Optional[int]  = Query(None, ge=1),
@@ -753,6 +760,7 @@ async def mix(
         # Aplicar Vibe Matrix también en la ruta de plataforma para que
         # Cerebro y Tono tengan efecto real (umbrales de votos/rating y géneros).
         plat_constraints = translate_vibes(genre_list, tone, cerebro, yearFrom, yearTo)
+        plat_constraints.min_avg_rating = minRating
 
         # Géneros del Tono (OR group) — solo cuando el usuario no eligió pads.
         # Si eligió géneros, ya están en genre_list y plat_constraints.user_genres.
@@ -787,8 +795,9 @@ async def mix(
 
     # 1. Traducir sliders → restricciones
     constraints = translate_vibes(genre_list, tone, cerebro, yearFrom, yearTo)
-    constraints.runtime_min = runtimeMin
-    constraints.runtime_max = runtimeMax
+    constraints.runtime_min    = runtimeMin
+    constraints.runtime_max    = runtimeMax
+    constraints.min_avg_rating = minRating
 
     genre_match = "exact"
 

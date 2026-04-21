@@ -20,13 +20,21 @@ const PANEL_W = '40%'
 const SPRING  = { type: 'spring', damping: 36, stiffness: 280 }
 
 const INITIAL_SLIDERS = {
-  genres:   [],
-  tone:     40,
-  cerebro:  50,
-  yearFrom: 1920,
-  yearTo:   new Date().getFullYear(),
-  runtime:  null,
-  platform: null,
+  genres:    [],
+  tone:      40,
+  cerebro:   50,
+  minRating: 0,
+  yearFrom:  1920,
+  yearTo:    new Date().getFullYear(),
+  runtime:   null,
+  platform:  null,
+}
+
+// Convierte posición del slider (0-100) a nota mínima legible
+function ratingDisplay(val) {
+  if (val >= 97) return '>8'
+  const r = 5.0 + (val / 96) * 3.0
+  return r.toFixed(1)
 }
 
 function parseUrlSliders(defaults) {
@@ -317,12 +325,21 @@ export default function App() {
                   color="#a57ce0"
                 />
                 <MixerSlider
-                  label="Cerebro"
-                  leftLabel="Blockbuster"
-                  rightLabel="Autor"
+                  label="Popularidad"
+                  leftLabel="La vieron todos"
+                  rightLabel="Joya sin descubrir"
                   value={sliders.cerebro}
                   onChange={set('cerebro')}
                   color="#5b9bd5"
+                />
+                <MixerSlider
+                  label="Nota"
+                  leftLabel="Al menos, será entretenida."
+                  rightLabel="puede cambiar tu vida..."
+                  value={sliders.minRating}
+                  onChange={set('minRating')}
+                  color="#e8a020"
+                  formatValue={ratingDisplay}
                 />
               </section>
 

@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { track, Events } from '../lib/track'
 
+function ratingToParam(val) {
+  if (val >= 97) return 8.0
+  return parseFloat((5.0 + (val / 96) * 3.0).toFixed(1))
+}
+
 const FALLBACKS = [
   {
     title: 'Blade Runner 2049',
@@ -69,11 +74,12 @@ export function useMix(sliders, remixKey = 0) {
         const runtimeParams = RUNTIME_BOUNDS[s.runtime] ?? {}
 
         const params = new URLSearchParams({
-          genres:   s.genres.join(','),
-          tone:     s.tone,
-          cerebro:  s.cerebro,
-          yearFrom: s.yearFrom,
-          yearTo:   s.yearTo,
+          genres:    s.genres.join(','),
+          tone:      s.tone,
+          cerebro:   s.cerebro,
+          minRating: ratingToParam(s.minRating ?? 0),
+          yearFrom:  s.yearFrom,
+          yearTo:    s.yearTo,
           ...runtimeParams,
           ...(s.platform ? { platform: s.platform } : {}),
         })

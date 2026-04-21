@@ -1,7 +1,7 @@
 import React, { useId, useState, useEffect } from 'react'
 import { motion, useMotionValue, useMotionValueEvent, useSpring, useTransform, useVelocity } from 'framer-motion'
 
-export default function MixerSlider({ label, leftLabel, rightLabel, value, onChange, color = '#ffffff' }) {
+export default function MixerSlider({ label, leftLabel, rightLabel, value, onChange, color = '#ffffff', formatValue }) {
   const id = useId()
 
   // Odómetro: spring suaviza el valor → digits intermedios visibles al arrastrar
@@ -12,6 +12,8 @@ export default function MixerSlider({ label, leftLabel, rightLabel, value, onCha
   const [counter, setCounter] = useState(value)
   useMotionValueEvent(spring, 'change', (v) => setCounter(Math.round(v)))
   useEffect(() => { raw.set(value) }, [value, raw])
+
+  const displayValue = formatValue ? formatValue(counter) : counter
 
   // Neón: --thumb-shadow se inyecta como CSS var y la lee el pseudo-elemento en index.css
   const [isDragging, setIsDragging] = useState(false)
@@ -38,7 +40,7 @@ export default function MixerSlider({ label, leftLabel, rightLabel, value, onCha
             className="block text-xs font-mono tabular-nums"
             style={{ color: 'rgba(255,255,255,0.6)', y: yOffset }}
           >
-            {counter}
+            {displayValue}
           </motion.span>
         </div>
       </div>
