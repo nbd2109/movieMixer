@@ -26,7 +26,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 logger = logging.getLogger("cinemix")
 
@@ -176,7 +179,17 @@ def interpolate_tone(tone: int) -> dict[str, float]:
 # Cerebro MID (36-69):  >= 15.000   → ~8.000 pelís  — mainstream de calidad
 # Cerebro HIGH (70-100): 3.000–50.000 → ~10.000 pelís — autor/nicho
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="CineMixer API", version="2.0.0")
+app.state.limiter = limiter
+app.add_exception_handler(
+    RateLimitExceeded,
+    lambda request, exc: JSONResponse(
+        status_code=429,
+        content={"error": "too_many_requests", "retry_after": 60},
+    ),
+)
+
 _raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:4173")
 app.add_middleware(
     CORSMiddleware,
@@ -721,7 +734,9 @@ async def discover_tmdb_by_platform(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/movies/mix")
+@limiter.limit("20/minute")
 async def mix(
+    request:    Request,
     genres:     str            = Query(""),
     tone:       int            = Query(50, ge=0, le=100),
     cerebro:    int            = Query(50, ge=0, le=100),
@@ -852,7 +867,8 @@ async def mix(
 
 
 @app.get("/api/movies/{tmdb_id}/watch-providers")
-async def watch_providers(tmdb_id: int, country: str = Query("ES")):
+@limiter.limit("60/minute")
+async def watch_providers(request: Request, tmdb_id: int, country: str = Query("ES")):
     """
     Devuelve dónde ver la película vía TMDB Watch Providers (datos de JustWatch).
     Intenta el país solicitado; hace fallback a US si no hay datos.
@@ -902,6 +918,7 @@ async def health():
 
 
 @app.post("/api/events")
+@limiter.limit("60/minute")
 async def collect_event(request: Request):
     """
     Recibe eventos de telemetría desde track.js vía navigator.sendBeacon.

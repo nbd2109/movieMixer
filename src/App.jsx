@@ -123,7 +123,7 @@ export default function App() {
         </div>
 
         {/* REMIX al fondo del mismo contenedor para que el centrado sea real */}
-        <div className="pb-8 flex flex-col items-center gap-3 w-full flex-shrink-0">
+        <div className="pb-8 flex justify-center w-full flex-shrink-0">
           <motion.button
             onClick={handleRemix}
             whileHover={{ scale: 1.05 }}
@@ -147,11 +147,6 @@ export default function App() {
             </motion.span>
             Mezclar
           </motion.button>
-          <Setlist
-            items={setlist}
-            currentTitle={movie?.title}
-            onRestore={restoreMovie}
-          />
         </div>
       </motion.div>
 
