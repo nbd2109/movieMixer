@@ -4,9 +4,6 @@ Caso de uso: MixService — orquestador principal de CineMix.
 Esta capa coordina el dominio (vibe_matrix, relaxation, selection) con los
 puertos (MovieRepository, MovieEnricher, PlatformDiscovery). No contiene
 lógica de negocio propia ni conoce FastAPI, SQLite ni TMDB directamente.
-
-El MixService recibe sus dependencias por constructor (Dependency Injection),
-lo que lo hace trivialmente testeable con dobles de prueba para los puertos.
 """
 
 import copy
@@ -17,7 +14,6 @@ from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
 
 from domain.constants import INDIAN_LANGUAGES, PLATFORM_IDS
-from domain.entities import VibeConstraints
 from domain.ports.movie_enricher import MovieEnricher, PlatformDiscovery
 from domain.ports.movie_repository import MovieRepository
 from domain.relaxation import STEP_REASON, relax
@@ -35,6 +31,7 @@ class MixService:
     Flujo completo:
       1. translate_vibes()  — convierte sliders a VibeConstraints (dominio puro)
       2. Ruta plataforma    — TMDB Discover si se pidió una plataforma
+         Todos los sliders se aplican: género, tono, cerebro, nota, año, duración.
       3. Ruta SQLite        — búsqueda principal + fallback progresivo
       4. pick_one()         — elección aleatoria con sesgo
       5. enrich()           — póster y sinopsis desde TMDB (best-effort)
@@ -42,8 +39,8 @@ class MixService:
 
     def __init__(
         self,
-        repository: MovieRepository,
-        enricher: MovieEnricher,
+        repository:         MovieRepository,
+        enricher:           MovieEnricher,
         platform_discovery: PlatformDiscovery,
     ) -> None:
         self._repo      = repository
@@ -63,37 +60,47 @@ class MixService:
         runtime_max: Optional[int],
         platform:    str,
     ) -> dict:
-        # ── RUTA PLATAFORMA — TMDB Discover con datos de JustWatch ───────────
         if platform and platform in PLATFORM_IDS:
             return await self._mix_platform(
                 genres, tone, cerebro, min_rating, max_rating,
-                year_from, year_to, platform,
+                year_from, year_to, runtime_min, runtime_max, platform,  # runtime incluido
             )
-
-        # ── RUTA SQLite — flujo estándar ──────────────────────────────────────
         return await self._mix_sqlite(
             genres, tone, cerebro, min_rating, max_rating,
             year_from, year_to, runtime_min, runtime_max,
         )
 
-    # ── Rutas privadas ────────────────────────────────────────────────────────
+    # ── Ruta plataforma ───────────────────────────────────────────────────────
 
     async def _mix_platform(
         self,
-        genres:     list[str],
-        tone:       int,
-        cerebro:    int,
-        min_rating: float,
-        max_rating: Optional[float],
-        year_from:  int,
-        year_to:    int,
-        platform:   str,
+        genres:      list[str],
+        tone:        int,
+        cerebro:     int,
+        min_rating:  float,
+        max_rating:  Optional[float],
+        year_from:   int,
+        year_to:     int,
+        runtime_min: Optional[int],   # ← bug corregido: antes no llegaba aquí
+        runtime_max: Optional[int],   # ← ídem
+        platform:    str,
     ) -> dict:
-        # Aplicar Vibe Matrix también aquí para que Cerebro y Tono tengan
-        # efecto real (umbrales de votos/rating y géneros).
-        constraints             = translate_vibes(genres, tone, cerebro, year_from, year_to)
-        constraints.min_avg_rating = min_rating
-        constraints.max_avg_rating = max_rating
+        """
+        Usa TMDB Discover con datos de JustWatch para buscar en la plataforma.
+        TODOS los sliders se aplican: Vibe Matrix calcula los umbrales, y se
+        pasan íntegramente a discover_by_platform.
+        """
+        constraints = translate_vibes(genres, tone, cerebro, year_from, year_to)
+
+        # Aplicar la misma interacción nota ↔ vibe_score que en la ruta SQLite:
+        # si el usuario fija un rango de nota, ajustar el suelo bayesiano para
+        # que no colisione con el techo que el usuario ha elegido.
+        if max_rating is not None:
+            constraints.min_vibe_score = min(
+                constraints.min_vibe_score, max(4.0, max_rating - 0.5)
+            )
+        if min_rating > 5.0:
+            constraints.min_vibe_score = min(constraints.min_vibe_score, min_rating - 0.1)
 
         # Géneros del Tono (OR group) — solo cuando el usuario no eligió pads.
         tone_genres = (
@@ -110,7 +117,11 @@ class MixService:
             year_from      = year_from,
             year_to        = year_to,
             min_votes      = constraints.min_votes,
-            min_rating     = constraints.min_vibe_score,
+            min_avg_rating = max(constraints.min_vibe_score, min_rating),  # el más estricto
+            max_avg_rating = max_rating,   # ← bug corregido: antes no se pasaba
+            runtime_min    = runtime_min,  # ← bug corregido: antes no se pasaba
+            runtime_max    = runtime_max,  # ← ídem
+            cerebro        = cerebro,      # controla estrategia sort/páginas en TMDB
         )
         if result:
             return result
@@ -122,6 +133,8 @@ class MixService:
                 "message":  f"Sin resultados en {platform} con estos ajustes",
             },
         )
+
+    # ── Ruta SQLite ───────────────────────────────────────────────────────────
 
     async def _mix_sqlite(
         self,
@@ -141,9 +154,9 @@ class MixService:
         constraints.min_avg_rating = min_rating
         constraints.max_avg_rating = max_rating
 
-        # ── Nota del usuario tiene prioridad sobre vibe_score ────────────────
-        # vibe_score >= 6.65 (cerebro=50) actúa como suelo implícito que haría
-        # inútil cualquier rango de nota por debajo de 6.5.
+        # Nota del usuario tiene prioridad sobre vibe_score.
+        # vibe_score (Bayesian WR) actúa como suelo implícito de calidad,
+        # pero si el usuario fija un techo de nota más bajo, lo respetamos.
         if max_rating is not None:
             constraints.min_vibe_score = min(
                 constraints.min_vibe_score, max(4.0, max_rating - 0.5)
@@ -159,17 +172,17 @@ class MixService:
         rows    = await run_in_threadpool(self._repo.find_movies, current)
 
         if not rows:
-            # ── Intento previo con múltiples géneros: OR en vez de AND ───────
+            # Intento con múltiples géneros: OR en vez de AND
             if genres and len(genres) > 1:
                 broad              = copy.deepcopy(constraints)
-                broad.genre_groups = [genres]   # un solo grupo OR
+                broad.genre_groups = [genres]
                 rows               = await run_in_threadpool(self._repo.find_movies, broad)
                 if rows:
                     genre_match = "approximate"
                     relaxed_by  = "genres"
 
         if not rows:
-            # ── Fallback progresivo — relaja restricciones paso a paso ───────
+            # Fallback progresivo — relaja restricciones paso a paso
             for step in range(1, 9):
                 relaxed = relax(current, step)
                 if relaxed is None:
