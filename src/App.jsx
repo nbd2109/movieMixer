@@ -245,21 +245,6 @@ export default function App() {
             </p>
           </motion.div>
         )}
-        {error?.code === 'no_genre_match' && (
-          <motion.div
-            key="no-match"
-            initial={{ opacity: 0, y: -12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            className="absolute top-14 z-50 px-5 py-2 rounded-xl glass text-center"
-            style={{ left: '30%', transform: 'translateX(-50%)', border: '1px solid rgba(239,68,68,0.3)' }}
-          >
-            <p className="text-red-400 text-[10px] font-semibold tracking-widest uppercase">Sin resultados</p>
-            <p className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
-              Esa combinación de géneros no tiene película
-            </p>
-          </motion.div>
-        )}
         {welcomeMessage && (
           <motion.div
             key="welcome"

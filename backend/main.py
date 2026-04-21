@@ -447,6 +447,18 @@ def build_query(c: VibeConstraints) -> tuple[str, list]:
 # 4. SISTEMA DE FALLBACK — Relajación progresiva de restricciones
 # ══════════════════════════════════════════════════════════════════════════════
 
+STEP_REASON: dict[int, str] = {
+    1: "epoch",       # ampliar años
+    2: "popularity",  # bajar umbral votos/vibe
+    3: "tone",        # quitar géneros del tono
+    4: "genres",      # quitar géneros del usuario
+    5: "tone",        # quitar exclusiones de tono
+    6: "popularity",  # quitar límite máx votos
+    7: "rating",      # quitar filtro de nota
+    8: "runtime",     # quitar filtro de duración
+}
+
+
 def relax(c: VibeConstraints, step: int) -> Optional[VibeConstraints]:
     """
     Relaja las restricciones en orden de menor a mayor impacto.
@@ -459,6 +471,8 @@ def relax(c: VibeConstraints, step: int) -> Optional[VibeConstraints]:
       Paso 4 → Eliminar también los géneros del usuario (pool sin filtro de género)
       Paso 5 → Eliminar exclusiones de géneros
       Paso 6 → Eliminar límite máximo de votos (Cerebro alto)
+      Paso 7 → Eliminar filtro de nota (min/max rating)
+      Paso 8 → Eliminar filtro de duración
     """
     r = copy.deepcopy(c)
 
@@ -479,6 +493,12 @@ def relax(c: VibeConstraints, step: int) -> Optional[VibeConstraints]:
         r.exclude_genres = []
     elif step == 6:
         r.max_votes = None
+    elif step == 7:
+        r.min_avg_rating = 5.0
+        r.max_avg_rating = None
+    elif step == 8:
+        r.runtime_min = None
+        r.runtime_max = None
     else:
         return None
 
@@ -807,6 +827,7 @@ async def mix(
     constraints.max_avg_rating = maxRating
 
     genre_match = "exact"
+    relaxed_by: Optional[str] = None
 
     # 2. Búsqueda principal
     current = constraints   # puede ser reemplazado por relax() en el fallback
@@ -814,44 +835,31 @@ async def mix(
     rows = await run_in_threadpool(run_query, sql, params)
 
     if not rows:
-        if genre_list:
-            # ── USUARIO ELIGIÓ GÉNEROS ────────────────────────────────────────
-            # Intento 2 — OR entre los géneros seleccionados (al menos uno):
-            # si pedían Mystery + War y no existe esa combo, buscar Mystery O War.
-            # Solo aplica con múltiples géneros; con uno solo ya devolvemos 404.
-            if len(genre_list) > 1:
-                broad = copy.deepcopy(constraints)
-                broad.genre_groups = [genre_list]   # un solo grupo OR
-                sql, params = build_query(broad)
-                rows = await run_in_threadpool(run_query, sql, params)
-                if rows:
-                    genre_match = "approximate"
+        # ── INTENTO PREVIO con múltiples géneros: OR en vez de AND ──────────
+        if genre_list and len(genre_list) > 1:
+            broad = copy.deepcopy(constraints)
+            broad.genre_groups = [genre_list]   # un solo grupo OR
+            sql, params = build_query(broad)
+            rows = await run_in_threadpool(run_query, sql, params)
+            if rows:
+                genre_match = "approximate"
+                relaxed_by  = "genres"
 
-            if not rows:
-                raise HTTPException(
-                    404,
-                    detail={
-                        "code":             "no_genre_match",
-                        "message":          f"Sin películas con: {', '.join(genre_list)}",
-                        "genres_requested": genre_list,
-                    }
-                )
-        else:
-            # ── SIN GÉNEROS — fallback progresivo del Tono ───────────────────
-            # Cada paso relaja una restricción distinta y es transparente:
-            # los pasos 1-2 ajustan umbrales (resultado sigue siendo afín al Tono),
-            # a partir del paso 3 el género puede alejarse → se marca "approximate"
-            # para que el frontend lo comunique al usuario.
-            for step in range(1, 8):
-                relaxed = relax(current, step)
-                if relaxed is None:
-                    raise HTTPException(500, "Sin resultados tras relajación máxima")
-                current = relaxed
-                sql, params = build_query(current)
-                rows = await run_in_threadpool(run_query, sql, params)
-                if rows:
-                    genre_match = "approximate" if step >= 3 else "relaxed"
-                    break
+    if not rows:
+        # ── FALLBACK PROGRESIVO — relaja restricciones paso a paso ──────────
+        # Pasos 1-2: umbrales (resultado sigue afín al Tono → "relaxed")
+        # Pasos 3+: cambia género/filtros → "approximate" + razón específica
+        for step in range(1, 9):
+            relaxed = relax(current, step)
+            if relaxed is None:
+                raise HTTPException(500, "Sin resultados tras relajación máxima")
+            current = relaxed
+            sql, params = build_query(current)
+            rows = await run_in_threadpool(run_query, sql, params)
+            if rows:
+                relaxed_by  = STEP_REASON[step]
+                genre_match = "approximate" if step >= 3 else "relaxed"
+                break
 
     # 3+4. Elegir película y enriquecer; reintentar si TMDB la identifica como india
     pool = list(rows)
@@ -879,6 +887,7 @@ async def mix(
         "overview":  meta.get("overview", ""),
         "tmdbId":    meta.get("tmdbId"),
         "genre_match": genre_match,
+        "relaxed_by":  relaxed_by,
     }
 
 

@@ -20,17 +20,19 @@ function formatRuntime(minutes) {
   return `${h}h ${m}min`
 }
 
-const APPROXIMATE_LABELS = [
-  'Lo más parecido que encontramos',
-  'No es exacto, pero va en esa onda',
-  'La mezcla más cercana disponible',
-]
+const RELAXED_BY_LABELS = {
+  epoch:      'Algo parecido · amplié el rango de años',
+  popularity: 'Algo parecido · ajusté el umbral de popularidad',
+  tone:       'Algo parecido · relajé el filtro de tono',
+  genres:     'Algo parecido · no encontré esa combo de géneros',
+  rating:     'Algo parecido · amplié el filtro de nota',
+  runtime:    'Algo parecido · ignoré el filtro de duración',
+}
 
 export default function MovieDisplay({ movie, loading }) {
   const overviewRef = useRef(null)
   const [phrase] = useState(() => IDLE_PHRASES[Math.floor(Math.random() * IDLE_PHRASES.length)])
-  const [approxLabel] = useState(() => APPROXIMATE_LABELS[Math.floor(Math.random() * APPROXIMATE_LABELS.length)])
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied]   = useState(false)
 
   function handleShare() {
     const url = window.location.href
@@ -105,7 +107,7 @@ export default function MovieDisplay({ movie, loading }) {
               className="text-[9px] tracking-[0.22em] uppercase"
               style={{ color: 'rgba(232,160,32,0.55)' }}
             >
-              {approxLabel}
+              {RELAXED_BY_LABELS[movie.relaxed_by] ?? 'Lo más parecido que encontramos'}
             </motion.p>
           )}
 

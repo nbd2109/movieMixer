@@ -94,12 +94,7 @@ export function useMix(sliders, remixKey = 0) {
 
         if (res.status === 404) {
           const body = await res.json()
-          const code = body.detail?.code
-          if (code === 'no_platform_match') {
-            setError({ code: 'no_platform_match', platform: body.detail?.platform ?? '' })
-          } else {
-            setError({ code: 'no_genre_match', genres: body.detail?.genres_requested ?? [] })
-          }
+          setError({ code: 'no_platform_match', platform: body.detail?.platform ?? '' })
           setLoading(false)
           return
         }
